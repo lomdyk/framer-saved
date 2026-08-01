@@ -1,38 +1,161 @@
 (function () {
   'use strict';
 
+  // ============================================================
+  //  Framer Saved — content script
+  //  Robust, Framer-native bookmarking for the Marketplace.
+  //  - No reliance on Framer's hashed CSS-module class names.
+  //  - Saved view renders as an overlay that *always* closes
+  //    (Back button, Esc, sidebar click, hashchange, popstate).
+  //  - Consistent item ids across cards / detail pages / import.
+  //  - All injected strings are HTML-escaped.
+  // ============================================================
+
   const STORAGE_KEY = 'framer_saved_items_v1';
+  const SAVED_HASH = '#saved';
+  const OVERLAY_ID = 'framer-saved-overlay';
+  const ORIGIN = window.location.origin;
+
   let savedItems = [];
-  let isMutating = false;
+  let enteredViaPush = false; // did we open the view via history.pushState?
+  let currentSearchQuery = '';
+  let toastTimer = null;
 
-  // SVG Icons
-  const BOOKMARK_ICON = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>`;
-  const BOOKMARK_FILLED_ICON = `<svg width="15" height="15" viewBox="0 0 24 24" fill="#0099ff" stroke="#0099ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>`;
-  const TRASH_ICON = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>`;
-  const SEARCH_ICON = `<svg width="12" height="12" fill="currentColor" overflow="visible" aria-hidden="true" focusable="false"><path d="M 8.878 7.817 L 11.78 10.72 C 12.073 11.013 12.073 11.487 11.78 11.78 C 11.487 12.073 11.013 12.073 10.72 11.78 L 7.817 8.878 C 7.001 9.482 5.992 9.846 4.923 9.846 C 2.204 9.846 0 7.642 0 4.923 C 0 2.204 2.204 0 4.923 0 C 7.642 0 9.846 2.204 9.846 4.923 C 9.846 5.992 9.482 7.001 8.878 7.817 Z M 4.923 1.5 C 3.032 1.5 1.5 3.032 1.5 4.923 C 1.5 6.814 3.032 8.346 4.923 8.346 C 6.814 8.346 8.346 6.814 8.346 4.923 C 8.346 3.032 6.814 1.5 4.923 1.5 Z"></path></svg>`;
-  const PLUS_ICON = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>`;
-  const EMPTY_BOOKMARK_ICON = `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>`;
+  // ------------------------------------------------------------
+  // Icons (stroke="currentColor" so they inherit button colors)
+  // ------------------------------------------------------------
+  const ICON_BOOKMARK =
+    '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>';
+  const ICON_BOOKMARK_FILLED =
+    '<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>';
+  const ICON_TRASH =
+    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
+  const ICON_SEARCH =
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>';
+  const ICON_PLUS =
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>';
+  const ICON_ARROW_LEFT =
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>';
+  const ICON_EMPTY =
+    '<svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>';
+  const ICON_LOGO =
+    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>';
 
-  loadSavedItems();
+  // ------------------------------------------------------------
+  // Small helpers
+  // ------------------------------------------------------------
+  function esc(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
 
-  function loadSavedItems() {
+  function debounce(fn, wait) {
+    let timer = null;
+    return function () {
+      const args = arguments;
+      clearTimeout(timer);
+      timer = setTimeout(function () { fn.apply(null, args); }, wait);
+    };
+  }
+
+  /** Canonical item id: lowercase pathname without slashes, e.g. "community/marketplace/components/slug". */
+  function normalizeId(href) {
+    try {
+      const u = new URL(href, ORIGIN);
+      return u.pathname.split('/').filter(Boolean).map(decodeURIComponent).join('/').toLowerCase();
+    } catch (e) {
+      return String(href || '');
+    }
+  }
+
+  /** Canonical page url for storage. */
+  function canonicalUrl(href) {
+    try {
+      const u = new URL(href, ORIGIN);
+      const decoded = u.pathname.split('/').filter(Boolean).map(function (seg) {
+        try {
+          return decodeURIComponent(seg);
+        } catch (e) {
+          return seg;
+        }
+      });
+      return ORIGIN + '/' + decoded.map(encodeURIComponent).join('/') + '/';
+    } catch (e) {
+      return String(href || '');
+    }
+  }
+
+  /**
+   * Normalize items read from storage: migrate legacy underscore ids
+   * (e.g. "community_marketplace_components_foo") to the canonical
+   * path form and drop duplicates.
+   */
+  function normalizeStoredItems(raw) {
+    const seen = {};
+    const result = [];
+    (Array.isArray(raw) ? raw : []).forEach(function (item) {
+      if (!item || typeof item !== 'object') return;
+      const source = item.url || item.id || '';
+      const id = normalizeId(source);
+      if (!id || seen[id]) return;
+      seen[id] = true;
+      result.push(Object.assign({}, item, { id: id, url: canonicalUrl(source) }));
+    });
+    return result;
+  }
+
+  function isItemSaved(idOrUrl) {
+    const needle = normalizeId(idOrUrl);
+    return savedItems.some(function (item) {
+      return item.id === needle || item.url === idOrUrl;
+    });
+  }
+
+  function findIndexById(idOrUrl) {
+    const needle = normalizeId(idOrUrl);
+    for (let i = 0; i < savedItems.length; i++) {
+      if (savedItems[i].id === needle || savedItems[i].url === idOrUrl) return i;
+    }
+    return -1;
+  }
+
+  function isMarketplacePage() {
+    return /^\/community\/marketplace\//.test(window.location.pathname);
+  }
+
+  function isDetailPage() {
+    return /^\/community\/marketplace\/(components|templates|vectors|plugins)\/[^/]+\/?$/.test(
+      window.location.pathname
+    );
+  }
+
+  // ------------------------------------------------------------
+  // Storage
+  // ------------------------------------------------------------
+  function loadSavedItems(callback) {
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.get([STORAGE_KEY], (res) => {
-        savedItems = res[STORAGE_KEY] || [];
-        updateBadgeCount();
-        initApp();
+      chrome.storage.local.get([STORAGE_KEY], function (res) {
+        savedItems = normalizeStoredItems(res[STORAGE_KEY]);
+        callback && callback();
       });
     } else {
-      const data = localStorage.getItem(STORAGE_KEY);
-      savedItems = data ? JSON.parse(data) : [];
-      updateBadgeCount();
-      initApp();
+      try {
+        const data = localStorage.getItem(STORAGE_KEY);
+        savedItems = normalizeStoredItems(data ? JSON.parse(data) : []);
+      } catch (e) {
+        savedItems = [];
+      }
+      callback && callback();
     }
   }
 
   function saveItemsToStorage() {
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.set({ [STORAGE_KEY]: savedItems }, () => {
+      chrome.storage.local.set({ [STORAGE_KEY]: savedItems }, function () {
         updateBadgeCount();
       });
     } else {
@@ -41,6 +164,21 @@
     }
   }
 
+  // Keep the page in sync when the popup / another tab changes storage.
+  if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+    chrome.storage.onChanged.addListener(function (changes, areaName) {
+      if (areaName === 'local' && changes[STORAGE_KEY]) {
+        savedItems = normalizeStoredItems(changes[STORAGE_KEY].newValue);
+        updateBadgeCount();
+        const overlay = document.getElementById(OVERLAY_ID);
+        if (overlay) renderSavedGrid();
+      }
+    });
+  }
+
+  // ------------------------------------------------------------
+  // Toast
+  // ------------------------------------------------------------
   function showToast(message) {
     let toast = document.querySelector('.framer-saved-toast');
     if (!toast) {
@@ -48,503 +186,700 @@
       toast.className = 'framer-saved-toast';
       document.body.appendChild(toast);
     }
-    toast.innerHTML = `${BOOKMARK_ICON} <span>${message}</span>`;
+    toast.innerHTML = '<span class="framer-saved-toast-icon">' + ICON_BOOKMARK + '</span><span>' + esc(message) + '</span>';
     toast.classList.add('show');
-    setTimeout(() => {
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () {
       toast.classList.remove('show');
-    }, 2500);
+    }, 2200);
   }
 
   function updateBadgeCount() {
-    const badge = document.querySelector('.framer-saved-badge');
-    if (badge) {
+    document.querySelectorAll('.framer-saved-badge').forEach(function (badge) {
       badge.textContent = savedItems.length;
-    }
+    });
   }
 
-  function isItemSaved(urlOrId) {
-    return savedItems.some(item => item.id === urlOrId || item.url === urlOrId);
-  }
-
-  function toggleSaveItem(itemData) {
-    const index = savedItems.findIndex(item => item.id === itemData.id || item.url === itemData.url);
-    if (index > -1) {
-      savedItems.splice(index, 1);
+  // ------------------------------------------------------------
+  // Toggle / metadata
+  // ------------------------------------------------------------
+  function toggleSaveItem(meta) {
+    const idx = findIndexById(meta.id);
+    if (idx > -1) {
+      savedItems.splice(idx, 1);
       saveItemsToStorage();
       showToast('Removed from Saved');
       return false;
-    } else {
-      savedItems.unshift(itemData);
-      saveItemsToStorage();
-      showToast('Saved to Favorites!');
-      return true;
     }
+    savedItems.unshift({
+      id: normalizeId(meta.url),
+      url: canonicalUrl(meta.url),
+      title: meta.title || 'Framer Component',
+      subtitle: meta.subtitle || '',
+      price: meta.price || 'Free',
+      creator: meta.creator || 'Framer Creator',
+      thumbnail: meta.thumbnail || '',
+      savedAt: new Date().toISOString()
+    });
+    saveItemsToStorage();
+    showToast('Saved to Favorites!');
+    return true;
   }
 
   function parseTitleAndSubtitle(rawTitle) {
     if (!rawTitle) return { title: 'Framer Component', subtitle: '' };
-    const delimiters = [' • ', ' · ', ' - '];
-    for (const delim of delimiters) {
-      if (rawTitle.includes(delim)) {
-        const parts = rawTitle.split(delim);
-        return {
-          title: parts[0].trim(),
-          subtitle: parts.slice(1).join(delim).trim()
-        };
+    const delimiters = [' • ', ' · ', ' — ', ' – ', ' - ', ':'];
+    for (let i = 0; i < delimiters.length; i++) {
+      const d = delimiters[i];
+      if (rawTitle.includes(d)) {
+        const parts = rawTitle.split(d);
+        return { title: parts[0].trim(), subtitle: parts.slice(1).join(d).trim() };
       }
     }
     return { title: rawTitle.trim(), subtitle: '' };
   }
 
-  function importLinks(urlsText) {
-    if (!urlsText) return 0;
-    const lines = urlsText.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
-    let count = 0;
-
-    lines.forEach(rawUrl => {
-      if (!rawUrl.includes('framer.com')) return;
-      const cleanUrl = rawUrl.split('?')[0];
-      const parts = cleanUrl.split('/').filter(Boolean);
-      const slug = parts[parts.length - 1] || 'imported-item';
-      const formattedTitle = slug.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-      const id = parts.join('_') || cleanUrl;
-
-      if (!isItemSaved(id)) {
-        savedItems.unshift({
-          id: id,
-          url: cleanUrl,
-          title: formattedTitle,
-          subtitle: 'Imported Link',
-          price: 'Free',
-          creator: 'Imported',
-          thumbnail: 'https://www.framer.com/creators/seo/community-og.jpg',
-          savedAt: new Date().toISOString()
-        });
-        count++;
-      }
-    });
-
-    if (count > 0) {
-      saveItemsToStorage();
-      showToast(`Imported ${count} link(s)!`);
-    }
-    return count;
-  }
-
   function getCurrentPageMetadata() {
-    const url = window.location.href.split('?')[0];
-    const pathParts = window.location.pathname.split('/').filter(Boolean);
-    const id = pathParts.join('_') || url;
+    const url = window.location.href.split(/[?#]/)[0];
+    const id = normalizeId(url);
 
     const h1 = document.querySelector('h1') || document.querySelector('[class*="h1"]');
-    const rawTitle = h1 ? h1.innerText.trim() : document.title.replace('— Framer Marketplace', '').trim();
-    const { title, subtitle } = parseTitleAndSubtitle(rawTitle);
+    let rawTitle = '';
+    if (h1) {
+      rawTitle = (h1.innerText || h1.textContent || '').trim();
+    } else {
+      rawTitle = document.title.replace(/—\s*Framer\s*(Marketplace)?\s*$/i, '').trim();
+    }
+    const parsed = parseTitleAndSubtitle(rawTitle);
 
-    const allElements = document.querySelectorAll('button, a, [class*="button"], [class*="Button"]');
-    let buyBtn = null;
-
-    for (const el of allElements) {
-      if (el.closest('nav')) continue;
-      const txt = (el.innerText || el.textContent || '').trim();
-      if (
-        txt === 'Copy Component' || 
-        txt === 'Copy Template' || 
-        txt.startsWith('Buy for') || 
-        txt.startsWith('Use for') || 
-        txt.startsWith('Get ') || 
-        txt === 'Remix'
-      ) {
-        buyBtn = el;
-        break;
-      }
+    // Find the primary CTA button ("Buy for $8", "Copy Component", "Use for Free"…)
+    let price = 'Free';
+    let ctaBtn = findCtaButton();
+    if (ctaBtn) {
+      const btnText = (ctaBtn.textContent || '').trim();
+      const money = btnText.match(/\$\s?\d+(?:[.,]\d+)?/);
+      if (money) price = money[0].replace(/\s/g, '');
+      else if (/use for free|copy component|copy template|remix/i.test(btnText)) price = 'Free';
+      else price = btnText;
     }
 
-    const price = buyBtn ? buyBtn.textContent.trim() : 'Free';
+    let creator = 'Framer Creator';
+    const creatorEl = document.querySelector(
+      '[class*="creator"], [class*="author"], [class*="byLine"], [class*="avatar"]'
+    );
+    if (creatorEl) {
+      const txt = (
+        creatorEl.innerText ||
+        creatorEl.textContent ||
+        creatorEl.getAttribute('alt') ||
+        ''
+      ).trim();
+      if (txt && txt.length < 80) creator = txt;
+    }
 
-    const creatorEl = document.querySelector('[class*="creator"], [class*="author"], [class*="byLine"]');
-    const creator = creatorEl ? creatorEl.innerText.trim() : 'Framer Creator';
-
+    let thumbnail = '';
     const imgEl = document.querySelector('main img, [class*="preview"] img, [class*="thumbnail"] img');
-    const thumbnail = imgEl ? imgEl.src : 'https://www.framer.com/creators/seo/community-og.jpg';
+    if (imgEl && imgEl.src) thumbnail = imgEl.src;
 
     return {
-      id,
-      url,
-      title,
-      subtitle,
-      price,
-      creator,
-      thumbnail,
+      id: id,
+      url: url,
+      title: parsed.title || 'Framer Component',
+      subtitle: parsed.subtitle || '',
+      price: price,
+      creator: creator,
+      thumbnail: thumbnail,
       savedAt: new Date().toISOString()
     };
   }
 
-  // --- SPA ROUTING & PAGE VISIBILITY HANDLER ---
-  function syncPageViewState() {
-    const isSavedRoute = window.location.hash === '#saved';
-    const mainContent = document.querySelector('.layout-module-scss-module__P9S6KG__content, main, [role="main"]');
-    let savedWrapper = document.getElementById('framer-saved-page-wrapper');
+  // ------------------------------------------------------------
+  // CTA button discovery (text based, no fragile class names)
+  // ------------------------------------------------------------
+  const CTA_PATTERNS = [
+    /^Copy (Component|Template)$/i,
+    /^Buy for\b/i,
+    /^Use for\b/i,
+    /^Get /i,
+    /^Remix$/i
+  ];
 
-    const savedNavBtn = document.querySelector('.framer-saved-nav-item');
-    document.querySelectorAll('.sidebar-module-scss-module__s7LA8a__navItem, .framer-saved-nav-item').forEach(el => {
-      el.classList.remove('active');
-    });
-
-    if (isSavedRoute) {
-      if (savedNavBtn) savedNavBtn.classList.add('active');
-      if (mainContent) mainContent.style.display = 'none';
-
-      if (!savedWrapper) {
-        savedWrapper = document.createElement('div');
-        savedWrapper.id = 'framer-saved-page-wrapper';
-        const parent = (mainContent && mainContent.parentElement) || document.body;
-        parent.appendChild(savedWrapper);
-      }
-      savedWrapper.style.display = 'block';
-
-      if (savedWrapper.getAttribute('data-rendered') !== 'true') {
-        renderSavedView(savedWrapper);
-      }
-    } else {
-      if (mainContent) mainContent.style.display = '';
-      if (savedWrapper) {
-        savedWrapper.style.display = 'none';
-        savedWrapper.removeAttribute('data-rendered');
-      }
-
-      const currentPath = window.location.pathname;
-      const activeLink = document.querySelector(`.sidebar-module-scss-module__s7LA8a__navItem[href="${currentPath}"]`);
-      if (activeLink) activeLink.classList.add('active');
+  function findCtaButton() {
+    const candidates = document.querySelectorAll(
+      'button, a[href], [role="button"], [class*="button"], [class*="Button"]'
+    );
+    for (const el of candidates) {
+      if (el.closest('nav')) continue;
+      if (el.closest('#' + OVERLAY_ID)) continue;
+      const text = (el.textContent || '').trim();
+      if (!text || text.length > 60) continue;
+      if (CTA_PATTERNS.some(function (re) { return re.test(text); })) return el;
     }
+    return null;
   }
 
-  function patchHistoryAPI() {
-    const originalPushState = history.pushState;
-    const originalReplaceState = history.replaceState;
-
-    history.pushState = function () {
-      originalPushState.apply(this, arguments);
-      setTimeout(syncPageViewState, 20);
-    };
-
-    history.replaceState = function () {
-      originalReplaceState.apply(this, arguments);
-      setTimeout(syncPageViewState, 20);
-    };
-
-    window.addEventListener('popstate', syncPageViewState);
-    window.addEventListener('hashchange', syncPageViewState);
+  // ------------------------------------------------------------
+  // 1) Sidebar "Saved" tab
+  // ------------------------------------------------------------
+  function findSidebarContext() {
+    // Anchor on the "Members" nav item (stable, text-based).
+    const links = document.querySelectorAll('nav a[href], aside a[href], [class*="sidebar"] a[href], a[href*="/community/"]');
+    for (const link of links) {
+      const href = (link.getAttribute('href') || '').split(/[?#]/)[0];
+      const text = (link.textContent || '').trim();
+      if (href === '/community/members/' || text === 'Members' || text === 'Community') {
+        const container = link.parentElement;
+        if (container) return { container: container, sibling: link };
+      }
+    }
+    // Fallback: any nav/aside that contains community links.
+    for (const link of links) {
+      const href = (link.getAttribute('href') || '') || '';
+      if (href.includes('/community/')) {
+        const container = link.closest('nav, aside, [class*="sidebar"], [class*="menu"]');
+        if (container) return { container: container, sibling: null };
+      }
+    }
+    const fallbackNav = document.querySelector('aside, nav[class*="side"]');
+    return fallbackNav ? { container: fallbackNav, sibling: null } : null;
   }
 
-  // Inject Sidebar Tab
   function injectSidebarTab() {
+    if (!window.location.pathname.includes('/community/')) return;
     if (document.querySelector('.framer-saved-nav-item')) return;
 
-    const navItems = document.querySelectorAll('.sidebar-module-scss-module__s7LA8a__navItem, a[href*="/community/"]');
-    let targetContainer = null;
-    let targetSibling = null;
+    const ctx = findSidebarContext();
+    if (!ctx || !ctx.container) return;
 
-    navItems.forEach(item => {
-      if (item.getAttribute('href') === '/community/members/' || item.innerText.includes('Members')) {
-        targetContainer = item.parentElement;
-        targetSibling = item;
-      }
-    });
+    const tab = document.createElement('a');
+    tab.className = 'framer-saved-nav-item';
+    tab.href = SAVED_HASH;
+    tab.title = 'Open your saved components';
+    tab.innerHTML =
+      '<span class="framer-saved-nav-icon">' + ICON_BOOKMARK + '</span>' +
+      '<span class="framer-saved-nav-label">Saved</span>' +
+      '<span class="framer-saved-badge">' + savedItems.length + '</span>';
 
-    if (!targetContainer) {
-      const sidebars = document.querySelectorAll('nav');
-      if (sidebars.length > 0) targetContainer = sidebars[0];
-    }
-
-    if (!targetContainer) return;
-
-    const savedTab = document.createElement('a');
-    savedTab.className = 'framer-saved-nav-item';
-    savedTab.href = '#saved';
-    savedTab.innerHTML = `
-      <span class="framer-saved-nav-icon">${BOOKMARK_ICON}</span>
-      <span>Saved</span>
-      <span class="framer-saved-badge">${savedItems.length}</span>
-    `;
-
-    savedTab.addEventListener('click', (e) => {
-      e.preventDefault();
-      history.pushState(null, '', '#saved');
-      syncPageViewState();
-    });
-
-    if (targetSibling && targetSibling.nextSibling) {
-      targetContainer.insertBefore(savedTab, targetSibling.nextSibling);
-    } else {
-      targetContainer.appendChild(savedTab);
-    }
-
-    syncPageViewState();
-  }
-
-  // Inject Detail Page Save Button - 100% DIRECT CTA BUTTON FINDER & INSERTION
-  function injectDetailBookmarkButton() {
-    if (document.querySelector('.framer-saved-detail-btn')) return;
-
-    const allElements = document.querySelectorAll('button, a, [class*="button"], [class*="Button"]');
-    let ctaBtn = null;
-
-    // 1. Exact Match for CTA Buttons ("Copy Component", "Copy Template", "Buy for...", "Use for...", "Get...", "Remix")
-    for (const el of allElements) {
-      if (el.closest('nav')) continue; // Exclude sidebar!
-      const txt = (el.innerText || el.textContent || '').trim();
-      if (
-        txt === 'Copy Component' || 
-        txt === 'Copy Template' || 
-        txt.startsWith('Buy for') || 
-        txt.startsWith('Use for') || 
-        txt.startsWith('Get ') || 
-        txt === 'Remix'
-      ) {
-        ctaBtn = el;
-        break;
-      }
-    }
-
-    // 2. Fallback: Search for any element containing primary action text
-    if (!ctaBtn) {
-      for (const el of allElements) {
-        if (el.closest('nav')) continue;
-        if (el.children.length > 2) continue;
-        const txt = (el.innerText || el.textContent || '').trim();
-        if (txt.includes('Copy Component') || txt.includes('Copy Template') || txt.includes('Buy for') || txt.includes('Use for Free')) {
-          ctaBtn = el;
-          break;
-        }
-      }
-    }
-
-    if (!ctaBtn || !ctaBtn.parentElement) return;
-
-    const targetParent = ctaBtn.parentElement;
-    const metadata = getCurrentPageMetadata();
-    const isSaved = isItemSaved(metadata.id);
-
-    const btn = document.createElement('button');
-    btn.className = `framer-saved-detail-btn ${isSaved ? 'is-saved' : ''}`;
-    btn.type = 'button';
-    btn.title = isSaved ? 'Remove from Saved' : 'Save component';
-    btn.ariaLabel = 'Bookmark Component';
-    btn.innerHTML = `${isSaved ? BOOKMARK_FILLED_ICON : BOOKMARK_ICON}`;
-
-    btn.addEventListener('click', (e) => {
+    tab.addEventListener('click', function (e) {
       e.preventDefault();
       e.stopPropagation();
-      const currentMeta = getCurrentPageMetadata();
-      const nowSaved = toggleSaveItem(currentMeta);
-      btn.className = `framer-saved-detail-btn ${nowSaved ? 'is-saved' : ''}`;
-      btn.title = nowSaved ? 'Remove from Saved' : 'Save component';
-      btn.innerHTML = `${nowSaved ? BOOKMARK_FILLED_ICON : BOOKMARK_ICON}`;
+      if (isSavedRoute()) {
+        closeSavedView();
+      } else {
+        openSavedView();
+      }
     });
 
-    // Insert right before CTA button (between heart icon and Copy Component / Buy button!)
-    targetParent.insertBefore(btn, ctaBtn);
+    if (ctx.sibling && ctx.sibling.nextSibling) {
+      ctx.container.insertBefore(tab, ctx.sibling.nextSibling);
+    } else {
+      ctx.container.appendChild(tab);
+    }
+    updateBadgeCount();
   }
 
-  // Inject Inline Action Bookmark Icon
+  // ------------------------------------------------------------
+  // 2) Detail page "Save" button — styled like Framer's actions
+  // ------------------------------------------------------------
+  function injectDetailBookmarkButton() {
+    if (!isDetailPage()) return;
+    if (document.querySelector('.framer-saved-detail-btn')) return;
+
+    const ctaBtn = findCtaButton();
+    if (!ctaBtn || !ctaBtn.parentElement) return;
+
+    const metadata = getCurrentPageMetadata();
+    const saved = isItemSaved(metadata.id);
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'framer-saved-detail-btn' + (saved ? ' is-saved' : '');
+    btn.setAttribute('aria-label', saved ? 'Remove from Saved' : 'Save component');
+    btn.setAttribute('aria-pressed', saved ? 'true' : 'false');
+    btn.title = saved ? 'Remove from Saved' : 'Save component';
+    updateDetailBtnContent(btn, saved);
+
+    btn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      const nowSaved = toggleSaveItem(getCurrentPageMetadata());
+      updateDetailBtnContent(btn, nowSaved);
+    });
+
+    // Insert between the vote/action icons and the primary CTA.
+    ctaBtn.parentElement.insertBefore(btn, ctaBtn);
+  }
+
+  function updateDetailBtnContent(btn, saved) {
+    btn.className = 'framer-saved-detail-btn' + (saved ? ' is-saved' : '');
+    btn.setAttribute('aria-label', saved ? 'Remove from Saved' : 'Save component');
+    btn.setAttribute('aria-pressed', saved ? 'true' : 'false');
+    btn.title = saved ? 'Remove from Saved' : 'Save component';
+    btn.innerHTML =
+      '<span class="framer-saved-detail-btn-icon">' + (saved ? ICON_BOOKMARK_FILLED : ICON_BOOKMARK) + '</span>' +
+      '<span class="framer-saved-detail-btn-label">' + (saved ? 'Saved' : 'Save') + '</span>';
+  }
+
+  // ------------------------------------------------------------
+  // 3) Marketplace grid card bookmark buttons
+  // ------------------------------------------------------------
   function injectCardBookmarkButtons() {
-    const footers = document.querySelectorAll('[class*="post-tile-module__"][class*="__footer"], [class*="post-tile"] [class*="footer"]');
+    if (!isMarketplacePage()) return;
 
-    footers.forEach(footer => {
-      if (footer.querySelector('.framer-saved-card-inline-btn')) return;
+    const links = document.querySelectorAll('a[href*="/marketplace/"]');
+    for (const link of links) {
+      const href = link.getAttribute('href') || '';
+      if (!/\/marketplace\/(components|templates|vectors|plugins)\/[^/?#]+/.test(href)) continue;
 
-      const tile = footer.closest('[class*="tile"], [class*="card"], [class*="item"]') || footer.parentElement;
-      if (!tile) return;
+      const tile =
+        link.closest('article, li, [class*="post-tile"], [class*="tile"], [class*="card"], [class*="post"]');
+      if (!tile) continue;
+      if (tile.closest('#' + OVERLAY_ID)) continue; // never touch our own overlay cards
+      if (tile.querySelector('.framer-saved-card-inline-btn')) continue;
 
-      const link = tile.querySelector('a[href*="/marketplace/components/"], a[href*="/marketplace/templates/"], a[href*="/marketplace/vectors/"], a[href*="/marketplace/plugins/"]');
-      if (!link) return;
+      const host = tile.querySelector('[class*="footer"], [class*="actions"], [class*="meta"], [class*="subline"]');
+      if (!host) continue;
 
-      const href = link.getAttribute('href');
-      const cardId = href.split('?')[0];
-      const isSaved = isItemSaved(cardId);
+      const cardId = normalizeId(href);
+      const saved = isItemSaved(cardId);
 
       const actionBtn = document.createElement('button');
-      actionBtn.className = `framer-saved-card-inline-btn ${isSaved ? 'is-saved' : ''}`;
       actionBtn.type = 'button';
-      actionBtn.title = isSaved ? 'Remove from Saved' : 'Save component';
-      actionBtn.ariaLabel = 'Bookmark Component';
-      actionBtn.innerHTML = isSaved ? BOOKMARK_FILLED_ICON : BOOKMARK_ICON;
+      actionBtn.className = 'framer-saved-card-inline-btn' + (saved ? ' is-saved' : '');
+      actionBtn.setAttribute('aria-label', saved ? 'Remove from Saved' : 'Save component');
+      actionBtn.title = saved ? 'Remove from Saved' : 'Save component';
+      actionBtn.innerHTML = saved ? ICON_BOOKMARK_FILLED : ICON_BOOKMARK;
 
-      actionBtn.addEventListener('click', (e) => {
+      actionBtn.addEventListener('click', function (e) {
         e.preventDefault();
         e.stopPropagation();
 
-        const img = tile.querySelector('img');
-        const rawTitleEl = tile.querySelector('[class*="name"], [class*="title"], h2, h3, h4');
-        const rawText = rawTitleEl ? rawTitleEl.innerText.trim() : 'Framer Component';
-        const { title, subtitle } = parseTitleAndSubtitle(rawText);
+        const img = link.querySelector('img') || tile.querySelector('img');
+        const titleEl =
+          tile.querySelector('[class*="name"], [class*="title"], h2, h3, h4') || link;
+        const rawText = (titleEl.innerText || titleEl.textContent || '').trim();
+        const parsed = parseTitleAndSubtitle(rawText);
 
-        const priceEl = tile.querySelector('[class*="subline"], [class*="price"]');
-        const creatorEl = tile.querySelector('[class*="creator"], [class*="author"]');
+        const priceEl = tile.querySelector('[class*="price"], [class*="subline"]');
+        const creatorEl = tile.querySelector('[class*="creator"], [class*="author"], img[alt]');
 
-        const itemMeta = {
-          id: cardId,
-          url: window.location.origin + href,
-          title: title,
-          subtitle: subtitle,
-          price: priceEl ? priceEl.innerText.trim() : 'Free',
-          creator: creatorEl ? creatorEl.innerText.trim() : 'Framer Creator',
-          thumbnail: img ? img.src : 'https://www.framer.com/creators/seo/community-og.jpg',
-          savedAt: new Date().toISOString()
-        };
-
-        const nowSaved = toggleSaveItem(itemMeta);
-        actionBtn.className = `framer-saved-card-inline-btn ${nowSaved ? 'is-saved' : ''}`;
-        actionBtn.title = nowSaved ? 'Remove from Saved' : 'Save component';
-        actionBtn.innerHTML = nowSaved ? BOOKMARK_FILLED_ICON : BOOKMARK_ICON;
-      });
-
-      footer.appendChild(actionBtn);
-    });
-  }
-
-  // Render Saved View inside #framer-saved-page-wrapper
-  function renderSavedView(container) {
-    if (!container) return;
-    container.setAttribute('data-rendered', 'true');
-
-    container.innerHTML = `
-      <div class="framer-saved-view-header">
-        <div class="framer-saved-title-group">
-          <h1>${BOOKMARK_ICON} Saved Components</h1>
-          <p>Your personal collection of bookmarked Framer components, templates, and UI kits.</p>
-        </div>
-        <div class="framer-saved-controls">
-          <button class="framer-saved-import-btn" id="framer-saved-import-btn">
-            ${PLUS_ICON} <span>Import Links</span>
-          </button>
-          <div class="framer-saved-search-field">
-            <span class="framer-saved-search-icon">${SEARCH_ICON}</span>
-            <input type="text" class="framer-saved-search-input" id="framer-saved-search" placeholder="Search saved components…" />
-          </div>
-        </div>
-      </div>
-      <div id="framer-saved-grid-target"></div>
-    `;
-
-    const searchInput = document.getElementById('framer-saved-search');
-    if (searchInput) {
-      searchInput.addEventListener('input', (e) => {
-        renderSavedGridItems(e.target.value);
-      });
-    }
-
-    const importBtn = document.getElementById('framer-saved-import-btn');
-    if (importBtn) {
-      importBtn.addEventListener('click', () => {
-        const input = prompt('Paste Framer Marketplace URLs (separated by new lines or commas):');
-        if (input) {
-          importLinks(input);
-          renderSavedGridItems(searchInput ? searchInput.value : '');
+        let creator = 'Framer Creator';
+        if (creatorEl) {
+          const txt = (creatorEl.innerText || creatorEl.textContent || creatorEl.getAttribute('alt') || '').trim();
+          if (txt && txt.length < 80) creator = txt;
         }
-      });
-    }
 
-    renderSavedGridItems();
+        const nowSaved = toggleSaveItem({
+          id: cardId,
+          url: link.href,
+          title: parsed.title || 'Framer Component',
+          subtitle: parsed.subtitle || '',
+          price: priceEl ? (priceEl.textContent || '').trim() : 'Free',
+          creator: creator,
+          thumbnail: img ? img.src : ''
+        });
+
+        actionBtn.className = 'framer-saved-card-inline-btn' + (nowSaved ? ' is-saved' : '');
+        actionBtn.setAttribute('aria-label', nowSaved ? 'Remove from Saved' : 'Save component');
+        actionBtn.title = nowSaved ? 'Remove from Saved' : 'Save component';
+        actionBtn.innerHTML = nowSaved ? ICON_BOOKMARK_FILLED : ICON_BOOKMARK;
+      });
+
+      host.appendChild(actionBtn);
+    }
   }
 
-  function renderSavedGridItems(filterQuery = '') {
-    const gridTarget = document.getElementById('framer-saved-grid-target');
-    if (!gridTarget) return;
+  // ------------------------------------------------------------
+  // 4) Saved view — a Framer-native overlay over the content area
+  // ------------------------------------------------------------
+  function isSavedRoute() {
+    return window.location.hash === SAVED_HASH;
+  }
 
-    const filtered = savedItems.filter(item => 
-      item.title.toLowerCase().includes(filterQuery.toLowerCase()) ||
-      (item.subtitle && item.subtitle.toLowerCase().includes(filterQuery.toLowerCase())) ||
-      (item.creator && item.creator.toLowerCase().includes(filterQuery.toLowerCase()))
-    );
+  function openSavedView() {
+    if (!isSavedRoute()) {
+      enteredViaPush = true;
+      try {
+        history.pushState(null, '', SAVED_HASH);
+      } catch (e) {
+        window.location.hash = SAVED_HASH;
+      }
+    }
+    syncSavedViewState();
+  }
+
+  function closeSavedView() {
+    if (isSavedRoute()) {
+      if (enteredViaPush) {
+        enteredViaPush = false;
+        history.back(); // popstate → syncSavedViewState() removes the overlay
+      } else {
+        // Opened via direct URL load — drop the hash in place, no reload.
+        const target = window.location.pathname + window.location.search;
+        try {
+          history.replaceState(null, '', target);
+        } catch (e) {
+          window.location.hash = '';
+        }
+      }
+    }
+    syncSavedViewState(); // belt & braces
+  }
+
+  function computeOverlayBounds() {
+    // Cover exactly Framer's content area (right of the sidebar).
+    const main = document.querySelector('main, [role="main"], [class*="content"]');
+    if (main) {
+      const r = main.getBoundingClientRect();
+      if (r.width > 120 && r.left >= 0) {
+        return {
+          top: Math.max(0, r.top),
+          right: Math.max(0, window.innerWidth - r.right),
+          bottom: Math.max(0, window.innerHeight - r.bottom),
+          left: Math.max(0, r.left)
+        };
+      }
+    }
+    const aside = document.querySelector('aside, [class*="sidebar"]');
+    if (aside) {
+      const r = aside.getBoundingClientRect();
+      return { top: Math.max(0, r.top), right: 0, bottom: 0, left: Math.max(0, r.right) };
+    }
+    return { top: 0, right: 0, bottom: 0, left: 0 };
+  }
+
+  function buildSavedOverlay() {
+    if (document.getElementById(OVERLAY_ID)) return;
+
+    const bounds = computeOverlayBounds();
+    const overlay = document.createElement('div');
+    overlay.id = OVERLAY_ID;
+    overlay.className = 'framer-saved-overlay';
+    overlay.style.top = bounds.top + 'px';
+    overlay.style.right = bounds.right + 'px';
+    overlay.style.bottom = bounds.bottom + 'px';
+    overlay.style.left = bounds.left + 'px';
+
+    overlay.innerHTML =
+      '<div class="framer-saved-overlay-inner">' +
+      '  <header class="framer-saved-view-header">' +
+      '    <div class="framer-saved-title-group">' +
+      '      <h1><span class="framer-saved-title-icon">' + ICON_LOGO + '</span>Saved Components</h1>' +
+      '      <p>Your personal collection of bookmarked Framer components, templates, and UI kits.</p>' +
+      '    </div>' +
+      '    <div class="framer-saved-controls">' +
+      '      <button type="button" class="framer-saved-btn framer-saved-btn-ghost framer-saved-back-btn" title="Back to the Marketplace (Esc)">' +
+      '        ' + ICON_ARROW_LEFT + '<span>Back to Marketplace</span>' +
+      '      </button>' +
+      '      <button type="button" class="framer-saved-btn framer-saved-btn-ghost framer-saved-import-btn" title="Import Framer Marketplace links">' +
+      '        ' + ICON_PLUS + '<span>Import Links</span>' +
+      '      </button>' +
+      '      <div class="framer-saved-search-field">' +
+      '        <span class="framer-saved-search-icon">' + ICON_SEARCH + '</span>' +
+      '        <input type="text" id="framer-saved-search" class="framer-saved-search-input" placeholder="Search saved items…" autocomplete="off" />' +
+      '      </div>' +
+      '    </div>' +
+      '    <div class="framer-saved-import-panel" hidden>' +
+      '      <textarea id="framer-saved-import-input" placeholder="Paste Framer Marketplace URLs — one per line or comma separated."></textarea>' +
+      '      <div class="framer-saved-import-actions">' +
+      '        <button type="button" class="framer-saved-btn framer-saved-btn-primary framer-saved-import-go">' + ICON_PLUS + '<span>Import</span></button>' +
+      '        <button type="button" class="framer-saved-btn framer-saved-btn-ghost framer-saved-import-cancel">Cancel</button>' +
+      '      </div>' +
+      '    </div>' +
+      '  </header>' +
+      '  <div id="framer-saved-grid" class="framer-saved-grid"></div>' +
+      '</div>';
+
+    document.body.appendChild(overlay);
+
+    // Back button
+    overlay.querySelector('.framer-saved-back-btn').addEventListener('click', function () {
+      closeSavedView();
+    });
+
+    // Import panel toggle
+    const importPanel = overlay.querySelector('.framer-saved-import-panel');
+    const importInput = overlay.querySelector('#framer-saved-import-input');
+    overlay.querySelector('.framer-saved-import-btn').addEventListener('click', function () {
+      importPanel.hidden = !importPanel.hidden;
+      if (!importPanel.hidden) importInput.focus();
+    });
+    overlay.querySelector('.framer-saved-import-cancel').addEventListener('click', function () {
+      importPanel.hidden = true;
+    });
+    overlay.querySelector('.framer-saved-import-go').addEventListener('click', function () {
+      const count = importLinks(importInput.value);
+      importInput.value = '';
+      importPanel.hidden = true;
+      renderSavedGrid();
+      if (count === 0) showToast('No new valid Framer links found');
+    });
+
+    // Search
+    overlay.querySelector('#framer-saved-search').addEventListener('input', function (e) {
+      currentSearchQuery = e.target.value;
+      renderSavedGrid();
+    });
+
+    renderSavedGrid();
+    // Focus search unless the collection is empty.
+    setTimeout(function () {
+      const input = overlay.querySelector('#framer-saved-search');
+      if (input && savedItems.length > 0 && window.innerWidth > 640) input.focus();
+    }, 50);
+  }
+
+  function renderSavedGrid() {
+    const grid = document.getElementById('framer-saved-grid');
+    if (!grid) return;
+
+    const q = (currentSearchQuery || '').toLowerCase().trim();
+    const filtered = savedItems.filter(function (item) {
+      if (!q) return true;
+      return (
+        (item.title || '').toLowerCase().includes(q) ||
+        (item.subtitle || '').toLowerCase().includes(q) ||
+        (item.creator || '').toLowerCase().includes(q)
+      );
+    });
 
     if (filtered.length === 0) {
-      gridTarget.innerHTML = `
-        <div class="framer-saved-empty-state">
-          <div class="framer-saved-empty-icon">${EMPTY_BOOKMARK_ICON}</div>
-          <h3>${savedItems.length === 0 ? 'No saved components yet' : 'No components match your search'}</h3>
-          <p>${savedItems.length === 0 ? 'Explore the Framer Marketplace or click Import Links to add items.' : 'Try a different search term.'}</p>
-        </div>
-      `;
+      grid.innerHTML =
+        '<div class="framer-saved-empty-state">' +
+        '  <div class="framer-saved-empty-icon">' + ICON_EMPTY + '</div>' +
+        '  <h3>' + esc(savedItems.length === 0 ? 'No saved components yet' : 'Nothing matches your search') + '</h3>' +
+        '  <p>' + esc(savedItems.length === 0
+          ? 'Explore the Framer Marketplace, or click Import Links to add items.'
+          : 'Try a different search term.') + '</p>' +
+        '</div>';
       return;
     }
 
-    let html = `<div class="framer-saved-grid">`;
-    filtered.forEach(item => {
-      const { title } = parseTitleAndSubtitle(item.title);
-
-      html += `
-        <div class="framer-saved-card" data-id="${item.id}">
-          <div class="framer-saved-card-thumb-wrapper">
-            <a href="${item.url}" target="_self">
-              <img class="framer-saved-card-thumb" src="${item.thumbnail}" alt="${title}" loading="lazy" />
-            </a>
-          </div>
-          <div class="framer-saved-card-info">
-            <div class="framer-saved-card-row1">
-              <a href="${item.url}" class="framer-saved-card-title" title="${title}">${title}</a>
-              <button class="framer-saved-card-remove-btn" data-id="${item.id}" title="Remove from Saved">
-                ${TRASH_ICON}
-              </button>
-            </div>
-            <div class="framer-saved-card-row2">
-              <span class="framer-saved-card-price">${item.price || 'Free'}</span>
-              <span class="framer-saved-card-creator">by ${item.creator || 'Creator'}</span>
-            </div>
-          </div>
-        </div>
-      `;
+    let html = '<div class="framer-saved-grid-cards">';
+    filtered.forEach(function (item) {
+      const parsed = parseTitleAndSubtitle(item.title);
+      const title = parsed.title || 'Framer Component';
+      html +=
+        '<div class="framer-saved-card" data-id="' + esc(item.id) + '">' +
+        '  <a class="framer-saved-card-thumb-link" href="' + esc(item.url) + '" title="' + esc(title) + '">' +
+        '    <span class="framer-saved-card-thumb-wrap">' +
+        '      <span class="framer-saved-card-thumb-fallback">' + ICON_BOOKMARK + '</span>' +
+        (item.thumbnail ? '      <img class="framer-saved-card-thumb" src="' + esc(item.thumbnail) + '" alt="' + esc(title) + '" loading="lazy" decoding="async" />' : '') +
+        '    </span>' +
+        '  </a>' +
+        '  <div class="framer-saved-card-info">' +
+        '    <div class="framer-saved-card-row1">' +
+        '      <a class="framer-saved-card-title" href="' + esc(item.url) + '" title="' + esc(item.title || '') + '">' + esc(title) + '</a>' +
+        '      <button type="button" class="framer-saved-card-remove-btn" data-id="' + esc(item.id) + '" title="Remove from Saved" aria-label="Remove from Saved">' + ICON_TRASH + '</button>' +
+        '    </div>' +
+        '    <div class="framer-saved-card-row2">' +
+        '      <span class="framer-saved-card-price">' + esc(item.price || 'Free') + '</span>' +
+        '      <span class="framer-saved-card-creator">' + esc(item.creator || '') + '</span>' +
+        '    </div>' +
+        '  </div>' +
+        '</div>';
     });
-    html += `</div>`;
+    html += '</div>';
+    grid.innerHTML = html;
 
-    gridTarget.innerHTML = html;
+    // Broken image fallback (attach via JS — the page CSP may block inline handlers).
+    grid.querySelectorAll('img.framer-saved-card-thumb').forEach(function (img) {
+      function markBroken() {
+        img.classList.add('is-broken');
+        const wrap = img.parentElement;
+        if (wrap) wrap.classList.add('has-broken-image');
+      }
+      img.addEventListener('error', markBroken, { once: true });
+      if (img.complete && img.naturalWidth === 0) markBroken();
+    });
 
-    gridTarget.querySelectorAll('.framer-saved-card-remove-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const idToRemove = btn.getAttribute('data-id');
-        const idx = savedItems.findIndex(i => i.id === idToRemove);
+    grid.querySelectorAll('.framer-saved-card-remove-btn').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const idx = findIndexById(btn.getAttribute('data-id'));
         if (idx > -1) {
           savedItems.splice(idx, 1);
           saveItemsToStorage();
-          const searchInput = document.getElementById('framer-saved-search');
-          renderSavedGridItems(searchInput ? searchInput.value : '');
+          renderSavedGrid();
           showToast('Removed from Saved');
         }
       });
     });
   }
 
-  function initApp() {
-    patchHistoryAPI();
-    injectSidebarTab();
-    injectDetailBookmarkButton();
-    injectCardBookmarkButtons();
+  function syncSavedViewState() {
+    const overlay = document.getElementById(OVERLAY_ID);
+    const active = isSavedRoute();
 
-    const observer = new MutationObserver(() => {
-      if (isMutating) return;
-      isMutating = true;
+    if (active) {
+      buildSavedOverlay();
+    } else if (overlay) {
+      overlay.remove();
+      currentSearchQuery = '';
+    }
 
-      try {
-        injectSidebarTab();
-        injectDetailBookmarkButton();
-        injectCardBookmarkButtons();
-      } finally {
-        setTimeout(() => { isMutating = false; }, 30);
-      }
+    document.querySelectorAll('.framer-saved-nav-item').forEach(function (el) {
+      el.classList.toggle('active', active);
+    });
+  }
+
+  // ------------------------------------------------------------
+  // Import links
+  // ------------------------------------------------------------
+  function importLinks(urlsText) {
+    if (!urlsText) return 0;
+    const lines = String(urlsText).split(/[\n,]+/).map(function (s) { return s.trim(); }).filter(Boolean);
+    let count = 0;
+
+    lines.forEach(function (rawUrl) {
+      if (!/framer\.com/.test(rawUrl)) return;
+      const clean = rawUrl.split(/[?#]/)[0];
+      const id = normalizeId(clean);
+      if (!id || findIndexById(id) > -1) return;
+
+      const slug = id.split('/').pop() || 'imported-item';
+      const formattedTitle = slug
+        .replace(/[-_]/g, ' ')
+        .replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+
+      savedItems.unshift({
+        id: id,
+        url: canonicalUrl(clean),
+        title: formattedTitle,
+        subtitle: 'Imported Link',
+        price: 'Free',
+        creator: 'Imported',
+        thumbnail: '',
+        savedAt: new Date().toISOString()
+      });
+      count++;
     });
 
-    observer.observe(document.body, { childList: true, subtree: true });
+    if (count > 0) {
+      saveItemsToStorage();
+      updateBadgeCount();
+      showToast('Imported ' + count + ' link' + (count === 1 ? '' : 's'));
+    }
+    return count;
+  }
 
-    setInterval(() => {
-      if (isMutating) return;
+  // ------------------------------------------------------------
+  // History / routing hooks — make sure the view always closes
+  // ------------------------------------------------------------
+  function patchHistoryAPI() {
+    const originalPushState = history.pushState;
+    const originalReplaceState = history.replaceState;
+
+    history.pushState = function () {
+      const ret = originalPushState.apply(this, arguments);
+      setTimeout(syncSavedViewState, 20);
+      return ret;
+    };
+
+    history.replaceState = function () {
+      const ret = originalReplaceState.apply(this, arguments);
+      setTimeout(syncSavedViewState, 20);
+      return ret;
+    };
+
+    window.addEventListener('popstate', syncSavedViewState);
+    window.addEventListener('hashchange', syncSavedViewState);
+
+    // If Framer's router doesn't react to a sidebar click (e.g. the link points
+    // to the page we are already on), force-close the overlay ourselves.
+    document.addEventListener(
+      'click',
+      function (e) {
+        const link = e.target && e.target.closest ? e.target.closest('a') : null;
+        if (!link) return;
+        const href = link.getAttribute('href') || '';
+        if (href.startsWith('#') || link.classList.contains('framer-saved-nav-item')) return;
+
+        const isNavLink = href.startsWith('/') || href.startsWith(ORIGIN) || href.startsWith('http');
+        if (!isNavLink) return;
+
+        setTimeout(function () {
+          if (!isSavedRoute()) return; // already closed
+          let targetPath = null;
+          try {
+            targetPath = new URL(link.href, ORIGIN).pathname;
+          } catch (err) { /* ignore */ }
+          if (targetPath === window.location.pathname) {
+            // Same-page link while in saved view → drop the hash ourselves.
+            try {
+              history.replaceState(null, '', window.location.pathname + window.location.search);
+            } catch (err) { /* ignore */ }
+          }
+          syncSavedViewState();
+        }, 80);
+      },
+      true
+    );
+
+    // Escape always closes the saved view.
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && isSavedRoute()) {
+        e.preventDefault();
+        closeSavedView();
+      }
+    });
+  }
+
+  // ------------------------------------------------------------
+  // Injection pipeline
+  // ------------------------------------------------------------
+  function injectAll() {
+    try {
       injectSidebarTab();
       injectDetailBookmarkButton();
       injectCardBookmarkButtons();
-    }, 400);
-
-    window.addEventListener('scroll', () => {
-      if (!isMutating) injectCardBookmarkButtons();
-    }, { passive: true });
+    } catch (err) {
+      // Never let an injection error break Framer's page.
+      if (window.console && console.warn) console.warn('Framer Saved injection error:', err);
+    }
   }
 
+  function initApp() {
+    patchHistoryAPI();
+
+    const scheduleInject = debounce(injectAll, 150);
+
+    const observer = new MutationObserver(function () {
+      scheduleInject();
+      syncSavedViewState(); // cheap; keeps the overlay alive across SPA re-renders
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    // Safety net for SPA transitions MutationObserver might miss.
+    setInterval(function () {
+      if (!document.hidden) injectAll();
+    }, 1500);
+
+    window.addEventListener('scroll', function () {
+      if (!document.hidden) injectCardBookmarkButtons();
+    }, { passive: true });
+
+    injectAll();
+    syncSavedViewState();
+  }
+
+  // ------------------------------------------------------------
+  // Boot
+  // ------------------------------------------------------------
+  loadSavedItems(initApp);
+
+  // Exposed for unit tests only — no-op inside a browser content script.
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+      esc: esc,
+      normalizeId: normalizeId,
+      canonicalUrl: canonicalUrl,
+      normalizeStoredItems: normalizeStoredItems,
+      parseTitleAndSubtitle: parseTitleAndSubtitle,
+      isItemSaved: isItemSaved,
+      findIndexById: findIndexById,
+      toggleSaveItem: toggleSaveItem
+    };
+  }
 })();
