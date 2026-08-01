@@ -135,14 +135,14 @@
   function isItemSaved(idOrUrl) {
     const needle = normalizeId(idOrUrl);
     return savedItems.some(function (item) {
-      return item.id === needle || item.url === idOrUrl;
+      return item.id === needle || normalizeId(item.url) === needle;
     });
   }
 
   function findIndexById(idOrUrl) {
     const needle = normalizeId(idOrUrl);
     for (let i = 0; i < savedItems.length; i++) {
-      if (savedItems[i].id === needle || savedItems[i].url === idOrUrl) return i;
+      if (savedItems[i].id === needle || normalizeId(savedItems[i].url) === needle) return i;
     }
     return -1;
   }
@@ -951,8 +951,24 @@
       }
     }, 500);
 
+    let scrollRaf = 0;
     win.addEventListener('scroll', function () {
-      if (!doc.hidden) injectCardBookmarkButtons();
+      if (scrollRaf) return;
+      scrollRaf = requestAnimationFrame(function () {
+        scrollRaf = 0;
+        if (!doc.hidden) injectCardBookmarkButtons();
+      });
+    }, { passive: true });
+
+    win.addEventListener('resize', function () {
+      var overlay = doc.getElementById(OVERLAY_ID);
+      if (overlay) {
+        var bounds = computeOverlayBounds();
+        overlay.style.top = bounds.top + 'px';
+        overlay.style.right = bounds.right + 'px';
+        overlay.style.bottom = bounds.bottom + 'px';
+        overlay.style.left = bounds.left + 'px';
+      }
     }, { passive: true });
 
     injectAll();
