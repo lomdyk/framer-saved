@@ -4,14 +4,24 @@
   <meta charset="UTF-8">
   <title>Framer Saved Components</title>
   <style>
+    :root {
+      --bg: #0a0a0a;
+      --surface: #141414;
+      --border: rgba(255, 255, 255, 0.1);
+      --text: #ffffff;
+      --text-secondary: #8a8f98;
+      --accent: #0099ff;
+    }
+    * { box-sizing: border-box; }
     body {
       width: 320px;
       margin: 0;
       padding: 16px;
-      background: #0d0d0d;
-      color: #ffffff;
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-      box-sizing: border-box;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 13px;
+      -webkit-font-smoothing: antialiased;
     }
     .header {
       display: flex;
@@ -19,68 +29,82 @@
       justify-content: space-between;
       margin-bottom: 14px;
       padding-bottom: 12px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      border-bottom: 1px solid var(--border);
     }
     .header h2 {
       margin: 0;
-      font-size: 15px;
+      font-size: 14px;
       font-weight: 600;
       display: flex;
       align-items: center;
       gap: 8px;
     }
     .badge {
-      background: #0099ff;
-      color: #fff;
+      background: rgba(0, 153, 255, 0.14);
+      color: var(--accent);
       font-size: 11px;
       font-weight: 600;
-      padding: 2px 8px;
-      border-radius: 10px;
+      padding: 3px 9px;
+      border-radius: 999px;
     }
     .actions {
       display: flex;
       flex-direction: column;
       gap: 8px;
-      margin-bottom: 14px;
+      margin-bottom: 12px;
     }
     .btn {
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 6px;
-      background: rgba(255, 255, 255, 0.08);
-      color: #fff;
-      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text);
+      border: 1px solid var(--border);
       border-radius: 8px;
       padding: 9px 12px;
       font-size: 12px;
       font-weight: 500;
+      font-family: inherit;
       cursor: pointer;
       text-decoration: none;
       transition: background 0.15s ease, border-color 0.15s ease;
     }
     .btn:hover {
-      background: rgba(255, 255, 255, 0.15);
-      border-color: rgba(255, 255, 255, 0.25);
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.2);
     }
     .btn-primary {
-      background: #0099ff;
-      border-color: #0099ff;
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
     }
     .btn-primary:hover {
-      background: #0088cc;
-      border-color: #0088cc;
+      background: #0a8ae8;
+      border-color: #0a8ae8;
     }
-    .recent-title {
+    .status {
+      display: none;
+      margin: -4px 0 10px 0;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: rgba(0, 153, 255, 0.1);
+      border: 1px solid rgba(0, 153, 255, 0.3);
+      color: var(--accent);
       font-size: 12px;
-      color: #888;
+      line-height: 1.4;
+    }
+    .status.show { display: block; }
+    .recent-title {
+      font-size: 11px;
+      color: var(--text-secondary);
       font-weight: 600;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin: 12px 0 8px 0;
+      letter-spacing: 0.06em;
+      margin: 14px 0 8px 0;
     }
     .list {
-      max-height: 180px;
+      max-height: 190px;
       overflow-y: auto;
       display: flex;
       flex-direction: column;
@@ -90,23 +114,25 @@
       display: flex;
       align-items: center;
       gap: 10px;
-      background: #161616;
+      background: var(--surface);
       border: 1px solid rgba(255, 255, 255, 0.06);
-      border-radius: 6px;
+      border-radius: 8px;
       padding: 6px 8px;
       text-decoration: none;
-      color: #fff;
-      transition: background 0.15s ease;
+      color: var(--text);
+      transition: background 0.15s ease, border-color 0.15s ease;
     }
     .item:hover {
-      background: #202020;
+      background: #1a1a1a;
+      border-color: rgba(255, 255, 255, 0.14);
     }
     .item img {
-      width: 36px;
+      width: 38px;
       height: 24px;
       object-fit: cover;
-      border-radius: 4px;
+      border-radius: 5px;
       background: #222;
+      flex-shrink: 0;
     }
     .item-title {
       font-size: 12px;
@@ -115,12 +141,18 @@
       overflow: hidden;
       text-overflow: ellipsis;
       flex-grow: 1;
+      min-width: 0;
+    }
+    .item-price {
+      font-size: 11px;
+      color: var(--text-secondary);
+      flex-shrink: 0;
     }
     .empty {
       text-align: center;
-      padding: 16px 0;
-      color: #666;
-      font-size: 13px;
+      padding: 18px 0;
+      color: #5c6169;
+      font-size: 12px;
     }
     .tools {
       display: flex;
@@ -133,16 +165,24 @@
       flex: 1;
       padding: 6px;
       font-size: 11px;
+      font-family: inherit;
       background: transparent;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      color: #888;
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
       border-radius: 6px;
       cursor: pointer;
+      transition: color 0.15s ease, border-color 0.15s ease;
     }
     .tools button:hover {
-      color: #fff;
+      color: var(--text);
       border-color: rgba(255, 255, 255, 0.2);
     }
+    .tools button.danger:hover {
+      color: #ff2d55;
+      border-color: rgba(255, 45, 85, 0.4);
+    }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 4px; }
   </style>
 </head>
 <body>
@@ -150,6 +190,8 @@
     <h2>🔖 Framer Saved</h2>
     <span class="badge" id="count-badge">0</span>
   </div>
+
+  <div class="status" id="status"></div>
 
   <div class="actions">
     <a href="#" id="open-saved-btn" class="btn btn-primary">Open Saved in Framer</a>
@@ -163,7 +205,7 @@
 
   <div class="tools">
     <button id="export-json">Export JSON</button>
-    <button id="clear-all">Clear All</button>
+    <button id="clear-all" class="danger">Clear All</button>
   </div>
 
   <script src="popup.js"></script>

@@ -1,38 +1,54 @@
-/* Framer Saved Components Extension Styles - 100% Native Framer CSS Matches */
+/* ============================================================
+   Framer Saved — extension styles
+   Matches Framer Marketplace's dark design system:
+   bg #0a0a0a · surface rgba(255,255,255,0.06) · border rgba(255,255,255,0.12)
+   text #fff/#8a8f98 · accent #0099ff · radius 8px · Inter
+   ============================================================ */
 
 :root {
-  --framer-bg-dark: #0a0a0a;
-  --framer-text-primary: #ffffff;
-  --framer-text-secondary: #888888;
-  --framer-accent-blue: #0099ff;
-  --framer-font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --fs-bg: #0a0a0a;
+  --fs-surface: #141414;
+  --fs-surface-hover: #1a1a1a;
+  --fs-border: rgba(255, 255, 255, 0.12);
+  --fs-border-strong: rgba(255, 255, 255, 0.2);
+  --fs-text: #ffffff;
+  --fs-text-secondary: #8a8f98;
+  --fs-text-muted: #5c6169;
+  --fs-accent: #0099ff;
+  --fs-danger: #ff2d55;
+  --fs-radius: 8px;
+  --fs-font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
-/* Sidebar Nav Item */
+/* ------------------------------------------------------------
+   Sidebar "Saved" nav item
+   ------------------------------------------------------------ */
 .framer-saved-nav-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-radius: 8px;
-  color: #888888;
+  gap: 10px;
+  padding: 7px 12px;
+  border-radius: var(--fs-radius);
+  color: var(--fs-text-secondary);
   text-decoration: none;
+  font-family: var(--fs-font);
   font-size: 13px;
   font-weight: 500;
+  line-height: 20px;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
   user-select: none;
-  margin-top: 2px;
+  -webkit-user-select: none;
 }
 
 .framer-saved-nav-item:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: #ffffff;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--fs-text);
 }
 
 .framer-saved-nav-item.active {
   background: rgba(255, 255, 255, 0.08);
-  color: #ffffff;
+  color: var(--fs-text);
   font-weight: 600;
 }
 
@@ -40,220 +56,366 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
+  opacity: 0.9;
+}
+
+.framer-saved-nav-item.active .framer-saved-nav-icon {
+  color: var(--fs-accent);
 }
 
 .framer-saved-nav-item .framer-saved-badge {
   margin-left: auto;
   font-size: 11px;
   font-weight: 600;
-  padding: 2px 7px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.1);
-  color: #aaa;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--fs-text-secondary);
 }
 
 .framer-saved-nav-item.active .framer-saved-badge {
-  background: var(--framer-accent-blue);
-  color: #fff;
+  background: rgba(0, 153, 255, 0.16);
+  color: var(--fs-accent);
 }
 
-/* Detail Page Header Action Button - Inserted directly into the button group cluster */
+/* ------------------------------------------------------------
+   Detail page "Save" button — sits in the header action cluster
+   ------------------------------------------------------------ */
 .framer-saved-detail-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: transparent;
-  border: none;
-  outline: none;
-  color: #888888;
-  cursor: pointer;
+  gap: 7px;
+  height: 34px;
+  padding: 0 13px;
   margin: 0;
-  padding: 0;
-  transition: color 0.15s ease, background 0.15s ease;
+  border-radius: var(--fs-radius);
+  border: 1px solid var(--fs-border);
+  background: transparent;
+  color: var(--fs-text-secondary);
+  font-family: var(--fs-font);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
   vertical-align: middle;
   flex-shrink: 0;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .framer-saved-detail-btn:hover {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.07);
+  border-color: var(--fs-border-strong);
+  color: var(--fs-text);
+}
+
+.framer-saved-detail-btn:active {
+  transform: scale(0.98);
+}
+
+.framer-saved-detail-btn .framer-saved-detail-btn-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .framer-saved-detail-btn.is-saved {
-  color: var(--framer-accent-blue);
+  border-color: rgba(0, 153, 255, 0.4);
+  background: rgba(0, 153, 255, 0.1);
+  color: var(--fs-accent);
 }
 
-.framer-saved-detail-btn.is-saved svg {
-  fill: var(--framer-accent-blue);
-  stroke: var(--framer-accent-blue);
+.framer-saved-detail-btn.is-saved:hover {
+  background: rgba(0, 153, 255, 0.16);
+  border-color: rgba(0, 153, 255, 0.55);
+  color: var(--fs-accent);
 }
 
-/* Inline Card Action Bookmark Icon */
+/* ------------------------------------------------------------
+   Marketplace grid card bookmark icon
+   ------------------------------------------------------------ */
 .framer-saved-card-inline-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: transparent;
-  border: none;
-  outline: none;
-  padding: 4px;
+  width: 28px;
+  height: 28px;
   margin-left: 8px;
-  margin-right: 0;
-  color: #888888;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--fs-border);
+  background: transparent;
+  color: var(--fs-text-secondary);
   cursor: pointer;
-  border-radius: 4px;
-  transition: color 0.15s ease, transform 0.15s ease;
-  flex-shrink: 0;
   vertical-align: middle;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
 }
 
 .framer-saved-card-inline-btn:hover {
-  color: #ffffff;
-  transform: scale(1.15);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--fs-border-strong);
+  color: var(--fs-text);
+  transform: scale(1.08);
 }
 
 .framer-saved-card-inline-btn.is-saved {
-  color: var(--framer-accent-blue);
+  border-color: rgba(0, 153, 255, 0.4);
+  background: rgba(0, 153, 255, 0.12);
+  color: var(--fs-accent);
 }
 
-.framer-saved-card-inline-btn.is-saved svg {
-  fill: var(--framer-accent-blue);
-  stroke: var(--framer-accent-blue);
+/* ------------------------------------------------------------
+   Saved view overlay — covers Framer's content area, keeps the
+   sidebar visible so navigation always works.
+   ------------------------------------------------------------ */
+#framer-saved-overlay {
+  position: fixed;
+  z-index: 2147483000;
+  background: var(--fs-bg);
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.35);
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  font-family: var(--fs-font);
+  color: var(--fs-text);
+  box-sizing: border-box;
+  animation: fs-overlay-in 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* Custom Saved Page Layout */
-#framer-saved-page-wrapper {
-  width: 100%;
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 32px;
-  font-family: var(--framer-font-sans);
-  color: var(--framer-text-primary);
+@keyframes fs-overlay-in {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+#framer-saved-overlay *,
+#framer-saved-overlay *::before,
+#framer-saved-overlay *::after {
   box-sizing: border-box;
 }
 
+.framer-saved-overlay-inner {
+  width: 100%;
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: 36px 40px 72px;
+}
+
+/* Header */
 .framer-saved-view-header {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  margin-bottom: 24px;
-  padding-bottom: 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   flex-wrap: wrap;
   gap: 16px;
+  margin-bottom: 28px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--fs-border);
 }
 
 .framer-saved-title-group h1 {
-  font-size: 24px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  margin: 0 0 4px 0;
   display: flex;
   align-items: center;
-  gap: 10px;
-  color: #fff;
+  gap: 12px;
+  margin: 0 0 6px 0;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--fs-text);
+  font-family: var(--fs-font);
+}
+
+.framer-saved-title-group .framer-saved-title-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: rgba(0, 153, 255, 0.14);
+  color: var(--fs-accent);
 }
 
 .framer-saved-title-group p {
-  color: var(--framer-text-secondary);
-  font-size: 13px;
   margin: 0;
+  color: var(--fs-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .framer-saved-controls {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
-.framer-saved-import-btn {
+/* Buttons */
+.framer-saved-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 12px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.08);
-  border: none;
-  color: #fff;
-  font-size: 12px;
-  font-weight: 500;
+  justify-content: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: var(--fs-radius);
+  font-family: var(--fs-font);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
   cursor: pointer;
-  transition: background 0.15s ease;
+  white-space: nowrap;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
-.framer-saved-import-btn:hover {
-  background: rgba(255, 255, 255, 0.14);
+.framer-saved-btn:active {
+  transform: scale(0.98);
 }
 
+.framer-saved-btn-ghost {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--fs-border);
+  color: var(--fs-text-secondary);
+}
+
+.framer-saved-btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--fs-border-strong);
+  color: var(--fs-text);
+}
+
+.framer-saved-btn-primary {
+  background: var(--fs-accent);
+  border: 1px solid var(--fs-accent);
+  color: #fff;
+}
+
+.framer-saved-btn-primary:hover {
+  background: #0a8ae8;
+  border-color: #0a8ae8;
+}
+
+/* Search field */
 .framer-saved-search-field {
   display: flex;
   align-items: center;
-  background: rgba(255, 255, 255, 0.05);
-  border: none;
-  border-radius: 8px;
+  gap: 8px;
+  height: 34px;
+  width: 230px;
   padding: 0 12px;
-  height: 32px;
-  width: 200px;
-  transition: background 0.15s ease;
+  border-radius: var(--fs-radius);
+  border: 1px solid var(--fs-border);
+  background: rgba(255, 255, 255, 0.04);
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 
 .framer-saved-search-field:focus-within {
-  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(0, 153, 255, 0.5);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .framer-saved-search-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #888;
-  margin-right: 8px;
+  color: var(--fs-text-muted);
   flex-shrink: 0;
 }
 
 .framer-saved-search-input {
+  flex: 1;
+  min-width: 0;
   background: transparent;
   border: none;
-  color: #fff;
-  font-size: 13px;
-  width: 100%;
   outline: none;
-  font-family: var(--framer-font-sans);
+  color: var(--fs-text);
+  font-family: var(--fs-font);
+  font-size: 13px;
 }
 
 .framer-saved-search-input::placeholder {
-  color: #666;
+  color: var(--fs-text-muted);
 }
 
-.framer-saved-grid {
+/* Import panel */
+.framer-saved-import-panel {
+  width: 100%;
+  margin-top: 4px;
+  padding: 14px;
+  border: 1px solid var(--fs-border);
+  border-radius: 10px;
+  background: var(--fs-surface);
+}
+
+.framer-saved-import-panel textarea {
+  width: 100%;
+  min-height: 72px;
+  padding: 10px 12px;
+  border-radius: var(--fs-radius);
+  border: 1px solid var(--fs-border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--fs-text);
+  font-family: var(--fs-font);
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+  outline: none;
+}
+
+.framer-saved-import-panel textarea:focus {
+  border-color: rgba(0, 153, 255, 0.5);
+}
+
+.framer-saved-import-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* ------------------------------------------------------------
+   Saved grid & cards
+   ------------------------------------------------------------ */
+.framer-saved-grid-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 28px 20px;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 32px 22px;
 }
 
 .framer-saved-card {
-  background: transparent;
-  border: none;
-  box-shadow: none;
   display: flex;
   flex-direction: column;
-  position: relative;
-  text-decoration: none;
+  min-width: 0;
 }
 
-.framer-saved-card-thumb-wrapper {
+.framer-saved-card-thumb-link {
+  display: block;
   position: relative;
   width: 100%;
   aspect-ratio: 16 / 10;
-  background: #111111;
   border-radius: 12px;
   overflow: hidden;
+  background: var(--fs-surface);
+  text-decoration: none;
+}
+
+.framer-saved-card-thumb-wrap {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .framer-saved-card-thumb {
@@ -261,128 +423,198 @@
   height: 100%;
   object-fit: cover;
   display: block;
-  border-radius: 12px;
-  transition: transform 0.25s ease;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.framer-saved-card:hover .framer-saved-card-thumb {
-  transform: scale(1.02);
+.framer-saved-card-thumb-link:hover .framer-saved-card-thumb {
+  transform: scale(1.03);
+}
+
+.framer-saved-card-thumb-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.12);
+}
+
+.framer-saved-card-thumb.is-broken,
+.framer-saved-card-thumb-wrap.has-broken-image img {
+  display: none;
+}
+
+.framer-saved-card-thumb-wrap.has-broken-image .framer-saved-card-thumb-fallback {
+  color: rgba(255, 255, 255, 0.18);
 }
 
 .framer-saved-card-info {
-  padding-top: 10px;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
+  padding-top: 12px;
 }
 
 .framer-saved-card-row1 {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
 }
 
 .framer-saved-card-title {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--fs-font);
   font-size: 13px;
   font-weight: 600;
-  color: #ffffff;
-  margin: 0;
+  color: var(--fs-text);
   text-decoration: none;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
+  transition: color 0.15s ease;
+}
+
+.framer-saved-card-title:hover {
+  color: var(--fs-accent);
+}
+
+.framer-saved-card-remove-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fs-text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.framer-saved-card-remove-btn:hover {
+  background: rgba(255, 45, 85, 0.12);
+  color: var(--fs-danger);
 }
 
 .framer-saved-card-row2 {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 12px;
-  color: var(--framer-text-secondary);
+  gap: 8px;
 }
 
 .framer-saved-card-price {
+  font-family: var(--fs-font);
   font-size: 12px;
-  color: var(--framer-text-secondary);
   font-weight: 500;
+  color: var(--fs-text-secondary);
 }
 
 .framer-saved-card-creator {
+  font-family: var(--fs-font);
   font-size: 12px;
-  color: #666666;
+  color: var(--fs-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.framer-saved-card-remove-btn {
-  background: transparent;
-  border: none;
-  color: #666666;
-  padding: 2px;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: color 0.15s ease;
-}
-
-.framer-saved-card-remove-btn:hover {
-  color: #ff2d55;
-}
-
+/* Empty state */
 .framer-saved-empty-state {
+  margin-top: 8px;
+  padding: 72px 24px;
   text-align: center;
-  padding: 64px 24px;
-  background: transparent;
-  border: 1px dashed rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  margin-top: 20px;
+  border: 1px dashed var(--fs-border);
+  border-radius: 14px;
 }
 
 .framer-saved-empty-icon {
-  width: 48px;
-  height: 48px;
-  margin: 0 auto 16px auto;
-  opacity: 0.3;
-  color: var(--framer-text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 18px auto;
+  width: 56px;
+  height: 56px;
+  color: var(--fs-text-muted);
 }
 
 .framer-saved-empty-state h3 {
+  margin: 0 0 8px 0;
+  font-family: var(--fs-font);
   font-size: 16px;
   font-weight: 600;
-  margin: 0 0 8px 0;
-  color: #fff;
+  color: var(--fs-text);
 }
 
 .framer-saved-empty-state p {
-  color: var(--framer-text-secondary);
-  font-size: 13px;
   margin: 0;
+  font-family: var(--fs-font);
+  font-size: 13px;
+  color: var(--fs-text-secondary);
 }
 
-/* Toast Notifications */
+/* ------------------------------------------------------------
+   Toast
+   ------------------------------------------------------------ */
 .framer-saved-toast {
   position: fixed;
   bottom: 24px;
   right: 24px;
-  z-index: 99999;
-  background: #181818;
-  color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  padding: 10px 16px;
-  border-radius: 8px;
-  font-family: var(--framer-font-sans);
-  font-size: 13px;
-  font-weight: 500;
+  z-index: 2147483001;
   display: flex;
   align-items: center;
-  gap: 8px;
-  transform: translateY(20px);
+  gap: 10px;
+  padding: 11px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--fs-border);
+  background: var(--fs-surface);
+  color: var(--fs-text);
+  font-family: var(--fs-font);
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  transform: translateY(16px);
   opacity: 0;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.22s ease;
+}
+
+.framer-saved-toast .framer-saved-toast-icon {
+  color: var(--fs-accent);
 }
 
 .framer-saved-toast.show {
   transform: translateY(0);
   opacity: 1;
+}
+
+/* ------------------------------------------------------------
+   Responsive
+   ------------------------------------------------------------ */
+@media (max-width: 720px) {
+  #framer-saved-overlay {
+    left: 0 !important;
+    border-left: none;
+  }
+
+  .framer-saved-overlay-inner {
+    padding: 24px 20px 56px;
+  }
+
+  .framer-saved-controls {
+    width: 100%;
+  }
+
+  .framer-saved-search-field {
+    flex: 1;
+    width: auto;
+  }
+
+  .framer-saved-grid-cards {
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 24px 14px;
+  }
 }
