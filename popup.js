@@ -23,7 +23,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function normalizeId(href) {
     try {
       const u = new URL(href, ORIGIN);
-      return u.pathname.split('/').filter(Boolean).join('/').toLowerCase();
+      return u.pathname.split('/').filter(Boolean).map(decodeURIComponent).join('/').toLowerCase();
     } catch (e) {
       return String(href || '');
     }
@@ -32,19 +32,35 @@ document.addEventListener('DOMContentLoaded', () => {
   function canonicalUrl(href) {
     try {
       const u = new URL(href, ORIGIN);
-      const path = u.pathname.split('/').filter(Boolean).map(encodeURIComponent).join('/');
-      return ORIGIN + '/' + path + '/';
+      const decoded = u.pathname.split('/').filter(Boolean).map(function (seg) {
+        try { return decodeURIComponent(seg); } catch (e) { return seg; }
+      });
+      return ORIGIN + '/' + decoded.map(encodeURIComponent).join('/') + '/';
     } catch (e) {
       return String(href || '');
     }
   }
 
+  function normalizeStoredItems(raw) {
+    const seen = {};
+    const result = [];
+    (Array.isArray(raw) ? raw : []).forEach(function (item) {
+      if (!item || typeof item !== 'object') return;
+      const source = item.url || item.id || '';
+      const id = normalizeId(source);
+      if (!id || seen[id]) return;
+      seen[id] = true;
+      result.push(Object.assign({}, item, { id: id, url: canonicalUrl(source) }));
+    });
+    return result;
+  }
+
   function getItems(cb) {
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.get([STORAGE_KEY], (res) => cb(res[STORAGE_KEY] || []));
+      chrome.storage.local.get([STORAGE_KEY], (res) => cb(normalizeStoredItems(res[STORAGE_KEY])));
     } else {
       try {
-        cb(JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'));
+        cb(normalizeStoredItems(JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')));
       } catch (e) {
         cb([]);
       }
@@ -104,7 +120,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const clean = rawUrl.split(/[?#]/)[0];
         const id = normalizeId(clean);
         if (!id) return;
-        if (saved.some((item) => item.id === id || item.url === clean)) return;
+        if (saved.some((item) => item.id === id || normalizeId(item.url) === id)) return;
 
         const slug = id.split('/').pop() || 'imported-item';
         const formattedTitle = slug.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
