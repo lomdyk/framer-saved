@@ -14,12 +14,18 @@
   const STORAGE_KEY = 'framer_saved_items_v1';
   const SAVED_HASH = '#saved';
   const OVERLAY_ID = 'framer-saved-overlay';
-  const ORIGIN = window.location.origin;
+
+  const win = window;
+  const doc = document;
+  const hist = history;
+  const ORIGIN = win.location.origin;
 
   let savedItems = [];
   let enteredViaPush = false; // did we open the view via history.pushState?
   let currentSearchQuery = '';
   let toastTimer = null;
+  let injectQueued = false;
+  let lastUrl = win.location.pathname + win.location.search + win.location.hash;
 
   // ------------------------------------------------------------
   // Icons (stroke="currentColor" so they inherit button colors)
@@ -44,6 +50,10 @@
   // ------------------------------------------------------------
   // Small helpers
   // ------------------------------------------------------------
+  function warn(err) {
+    if (win.console && console.warn) console.warn('Framer Saved:', err);
+  }
+
   function esc(value) {
     return String(value == null ? '' : value)
       .replace(/&/g, '&amp;')
@@ -53,13 +63,27 @@
       .replace(/'/g, '&#39;');
   }
 
-  function debounce(fn, wait) {
-    let timer = null;
-    return function () {
-      const args = arguments;
-      clearTimeout(timer);
-      timer = setTimeout(function () { fn.apply(null, args); }, wait);
-    };
+  function currentUrlKey() {
+    return win.location.pathname + win.location.search + win.location.hash;
+  }
+
+  function urlChanged() {
+    const now = currentUrlKey();
+    if (now !== lastUrl) {
+      lastUrl = now;
+      return true;
+    }
+    return false;
+  }
+
+  /** Leading-edge throttle: reacts fast, doesn't starve during mutation storms. */
+  function scheduleInject() {
+    if (injectQueued) return;
+    injectQueued = true;
+    setTimeout(function () {
+      injectQueued = false;
+      injectAll();
+    }, 120);
   }
 
   /** Canonical item id: lowercase pathname without slashes, e.g. "community/marketplace/components/slug". */
@@ -124,12 +148,12 @@
   }
 
   function isMarketplacePage() {
-    return /^\/community\/marketplace\//.test(window.location.pathname);
+    return /^\/community\/marketplace\//.test(win.location.pathname);
   }
 
   function isDetailPage() {
     return /^\/community\/marketplace\/(components|templates|vectors|plugins)\/[^/]+\/?$/.test(
-      window.location.pathname
+      win.location.pathname
     );
   }
 
@@ -159,7 +183,9 @@
         updateBadgeCount();
       });
     } else {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(savedItems));
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(savedItems));
+      } catch (e) { /* ignore */ }
       updateBadgeCount();
     }
   }
@@ -170,7 +196,7 @@
       if (areaName === 'local' && changes[STORAGE_KEY]) {
         savedItems = normalizeStoredItems(changes[STORAGE_KEY].newValue);
         updateBadgeCount();
-        const overlay = document.getElementById(OVERLAY_ID);
+        const overlay = doc.getElementById(OVERLAY_ID);
         if (overlay) renderSavedGrid();
       }
     });
@@ -180,11 +206,11 @@
   // Toast
   // ------------------------------------------------------------
   function showToast(message) {
-    let toast = document.querySelector('.framer-saved-toast');
+    let toast = doc.querySelector('.framer-saved-toast');
     if (!toast) {
-      toast = document.createElement('div');
+      toast = doc.createElement('div');
       toast.className = 'framer-saved-toast';
-      document.body.appendChild(toast);
+      doc.body.appendChild(toast);
     }
     toast.innerHTML = '<span class="framer-saved-toast-icon">' + ICON_BOOKMARK + '</span><span>' + esc(message) + '</span>';
     toast.classList.add('show');
@@ -195,7 +221,7 @@
   }
 
   function updateBadgeCount() {
-    document.querySelectorAll('.framer-saved-badge').forEach(function (badge) {
+    doc.querySelectorAll('.framer-saved-badge').forEach(function (badge) {
       badge.textContent = savedItems.length;
     });
   }
@@ -204,26 +230,27 @@
   // Toggle / metadata
   // ------------------------------------------------------------
   function toggleSaveItem(meta) {
-    const idx = findIndexById(meta.id);
+    const idx = findIndexById(meta.id || meta.url);
     if (idx > -1) {
       savedItems.splice(idx, 1);
       saveItemsToStorage();
       showToast('Removed from Saved');
       return false;
+    } else {
+      savedItems.unshift({
+        id: normalizeId(meta.url),
+        url: canonicalUrl(meta.url),
+        title: meta.title || 'Framer Component',
+        subtitle: meta.subtitle || '',
+        price: meta.price || 'Free',
+        creator: meta.creator || 'Framer Creator',
+        thumbnail: meta.thumbnail || '',
+        savedAt: new Date().toISOString()
+      });
+      saveItemsToStorage();
+      showToast('Saved to Favorites!');
+      return true;
     }
-    savedItems.unshift({
-      id: normalizeId(meta.url),
-      url: canonicalUrl(meta.url),
-      title: meta.title || 'Framer Component',
-      subtitle: meta.subtitle || '',
-      price: meta.price || 'Free',
-      creator: meta.creator || 'Framer Creator',
-      thumbnail: meta.thumbnail || '',
-      savedAt: new Date().toISOString()
-    });
-    saveItemsToStorage();
-    showToast('Saved to Favorites!');
-    return true;
   }
 
   function parseTitleAndSubtitle(rawTitle) {
@@ -240,15 +267,15 @@
   }
 
   function getCurrentPageMetadata() {
-    const url = window.location.href.split(/[?#]/)[0];
+    const url = win.location.href.split(/[?#]/)[0];
     const id = normalizeId(url);
 
-    const h1 = document.querySelector('h1') || document.querySelector('[class*="h1"]');
+    const h1 = doc.querySelector('h1') || doc.querySelector('[class*="h1"]');
     let rawTitle = '';
     if (h1) {
       rawTitle = (h1.innerText || h1.textContent || '').trim();
     } else {
-      rawTitle = document.title.replace(/—\s*Framer\s*(Marketplace)?\s*$/i, '').trim();
+      rawTitle = doc.title.replace(/—\s*Framer\s*(Marketplace)?\s*$/i, '').trim();
     }
     const parsed = parseTitleAndSubtitle(rawTitle);
 
@@ -264,7 +291,7 @@
     }
 
     let creator = 'Framer Creator';
-    const creatorEl = document.querySelector(
+    const creatorEl = doc.querySelector(
       '[class*="creator"], [class*="author"], [class*="byLine"], [class*="avatar"]'
     );
     if (creatorEl) {
@@ -278,7 +305,7 @@
     }
 
     let thumbnail = '';
-    const imgEl = document.querySelector('main img, [class*="preview"] img, [class*="thumbnail"] img');
+    const imgEl = doc.querySelector('main img, [class*="preview"] img, [class*="thumbnail"] img');
     if (imgEl && imgEl.src) thumbnail = imgEl.src;
 
     return {
@@ -305,10 +332,11 @@
   ];
 
   function findCtaButton() {
-    const candidates = document.querySelectorAll(
+    const candidates = doc.querySelectorAll(
       'button, a[href], [role="button"], [class*="button"], [class*="Button"]'
     );
-    for (const el of candidates) {
+    for (let i = 0; i < candidates.length; i++) {
+      const el = candidates[i];
       if (el.closest('nav')) continue;
       if (el.closest('#' + OVERLAY_ID)) continue;
       const text = (el.textContent || '').trim();
@@ -323,8 +351,9 @@
   // ------------------------------------------------------------
   function findSidebarContext() {
     // Anchor on the "Members" nav item (stable, text-based).
-    const links = document.querySelectorAll('nav a[href], aside a[href], [class*="sidebar"] a[href], a[href*="/community/"]');
-    for (const link of links) {
+    const links = doc.querySelectorAll('nav a[href], aside a[href], [class*="sidebar"] a[href], a[href*="/community/"]');
+    for (let i = 0; i < links.length; i++) {
+      const link = links[i];
       const href = (link.getAttribute('href') || '').split(/[?#]/)[0];
       const text = (link.textContent || '').trim();
       if (href === '/community/members/' || text === 'Members' || text === 'Community') {
@@ -333,25 +362,26 @@
       }
     }
     // Fallback: any nav/aside that contains community links.
-    for (const link of links) {
+    for (let i = 0; i < links.length; i++) {
+      const link = links[i];
       const href = (link.getAttribute('href') || '') || '';
       if (href.includes('/community/')) {
         const container = link.closest('nav, aside, [class*="sidebar"], [class*="menu"]');
         if (container) return { container: container, sibling: null };
       }
     }
-    const fallbackNav = document.querySelector('aside, nav[class*="side"]');
+    const fallbackNav = doc.querySelector('aside, nav[class*="side"]');
     return fallbackNav ? { container: fallbackNav, sibling: null } : null;
   }
 
   function injectSidebarTab() {
-    if (!window.location.pathname.includes('/community/')) return;
-    if (document.querySelector('.framer-saved-nav-item')) return;
+    if (!win.location.pathname.includes('/community/')) return;
+    if (doc.querySelector('.framer-saved-nav-item')) return;
 
     const ctx = findSidebarContext();
     if (!ctx || !ctx.container) return;
 
-    const tab = document.createElement('a');
+    const tab = doc.createElement('a');
     tab.className = 'framer-saved-nav-item';
     tab.href = SAVED_HASH;
     tab.title = 'Open your saved components';
@@ -375,6 +405,7 @@
     } else {
       ctx.container.appendChild(tab);
     }
+
     updateBadgeCount();
   }
 
@@ -383,20 +414,21 @@
   // ------------------------------------------------------------
   function injectDetailBookmarkButton() {
     if (!isDetailPage()) return;
-    if (document.querySelector('.framer-saved-detail-btn')) return;
 
     const ctaBtn = findCtaButton();
     if (!ctaBtn || !ctaBtn.parentElement) return;
 
+    // Already injected in this exact spot? Check siblings
+    const siblings = Array.prototype.slice.call(ctaBtn.parentElement.children);
+    if (siblings.some(function (s) {
+      return s.classList && s.classList.contains('framer-saved-detail-btn');
+    })) return;
+
     const metadata = getCurrentPageMetadata();
     const saved = isItemSaved(metadata.id);
 
-    const btn = document.createElement('button');
+    const btn = doc.createElement('button');
     btn.type = 'button';
-    btn.className = 'framer-saved-detail-btn' + (saved ? ' is-saved' : '');
-    btn.setAttribute('aria-label', saved ? 'Remove from Saved' : 'Save component');
-    btn.setAttribute('aria-pressed', saved ? 'true' : 'false');
-    btn.title = saved ? 'Remove from Saved' : 'Save component';
     updateDetailBtnContent(btn, saved);
 
     btn.addEventListener('click', function (e) {
@@ -423,32 +455,67 @@
   // ------------------------------------------------------------
   // 3) Marketplace grid card bookmark buttons
   // ------------------------------------------------------------
+  function classNameOf(el) {
+    if (!el) return '';
+    const c = el.className;
+    return typeof c === 'string' ? c : (c && c.baseVal) || '';
+  }
+
+  /**
+   * Climb from the card's <a> to the tile/card container.
+   * Never returns the <a> itself — its class often contains
+   * "post-tile"/"tile" too, which used to break the lookup.
+   */
+  function findTile(link) {
+    let el = link;
+    for (let i = 0; i < 7 && el; i++) {
+      if (el.tagName === 'A') {
+        el = el.parentElement; // Step over the <a> itself!
+        continue;
+      }
+      const cls = classNameOf(el).toLowerCase();
+      const tag = (el.tagName || '').toLowerCase();
+      if (/tile|card|post|item/.test(cls) || tag === 'article' || tag === 'li') return el;
+      el = el.parentElement;
+    }
+    const parent = link.parentElement;
+    return parent && parent.tagName !== 'BODY' ? parent : null;
+  }
+
+  function ensurePositioned(el) {
+    try {
+      if (win.getComputedStyle(el).position === 'static') el.style.position = 'relative';
+    } catch (e) { /* ignore */ }
+  }
+
+  function setCardBtnState(btn, saved) {
+    btn.className = 'framer-saved-card-inline-btn' + (saved ? ' is-saved' : '');
+    btn.setAttribute('aria-label', saved ? 'Remove from Saved' : 'Save component');
+    btn.title = saved ? 'Remove from Saved' : 'Save component';
+    btn.innerHTML = saved ? ICON_BOOKMARK_FILLED : ICON_BOOKMARK;
+  }
+
   function injectCardBookmarkButtons() {
     if (!isMarketplacePage()) return;
 
-    const links = document.querySelectorAll('a[href*="/marketplace/"]');
-    for (const link of links) {
+    const links = doc.querySelectorAll('a[href*="/marketplace/"]');
+    for (let i = 0; i < links.length; i++) {
+      const link = links[i];
       const href = link.getAttribute('href') || '';
-      if (!/\/marketplace\/(components|templates|vectors|plugins)\/[^/?#]+/.test(href)) continue;
+      // Detail-page link only: /marketplace/<type>/<slug>[/]
+      if (!/\/marketplace\/(components|templates|vectors|plugins)\/[^/?#]+\/?$/.test(href)) continue;
 
-      const tile =
-        link.closest('article, li, [class*="post-tile"], [class*="tile"], [class*="card"], [class*="post"]');
+      const tile = findTile(link);
       if (!tile) continue;
-      if (tile.closest('#' + OVERLAY_ID)) continue; // never touch our own overlay cards
+      if (tile.closest('#' + OVERLAY_ID)) continue;
       if (tile.querySelector('.framer-saved-card-inline-btn')) continue;
-
-      const host = tile.querySelector('[class*="footer"], [class*="actions"], [class*="meta"], [class*="subline"]');
-      if (!host) continue;
 
       const cardId = normalizeId(href);
       const saved = isItemSaved(cardId);
 
-      const actionBtn = document.createElement('button');
+      const actionBtn = doc.createElement('button');
       actionBtn.type = 'button';
-      actionBtn.className = 'framer-saved-card-inline-btn' + (saved ? ' is-saved' : '');
-      actionBtn.setAttribute('aria-label', saved ? 'Remove from Saved' : 'Save component');
-      actionBtn.title = saved ? 'Remove from Saved' : 'Save component';
-      actionBtn.innerHTML = saved ? ICON_BOOKMARK_FILLED : ICON_BOOKMARK;
+      setCardBtnState(actionBtn, saved);
 
       actionBtn.addEventListener('click', function (e) {
         e.preventDefault();
@@ -479,13 +546,11 @@
           thumbnail: img ? img.src : ''
         });
 
-        actionBtn.className = 'framer-saved-card-inline-btn' + (nowSaved ? ' is-saved' : '');
-        actionBtn.setAttribute('aria-label', nowSaved ? 'Remove from Saved' : 'Save component');
-        actionBtn.title = nowSaved ? 'Remove from Saved' : 'Save component';
-        actionBtn.innerHTML = nowSaved ? ICON_BOOKMARK_FILLED : ICON_BOOKMARK;
+        setCardBtnState(actionBtn, nowSaved);
       });
 
-      host.appendChild(actionBtn);
+      ensurePositioned(tile);
+      tile.appendChild(actionBtn);
     }
   }
 
@@ -493,16 +558,16 @@
   // 4) Saved view — a Framer-native overlay over the content area
   // ------------------------------------------------------------
   function isSavedRoute() {
-    return window.location.hash === SAVED_HASH;
+    return win.location.hash === SAVED_HASH;
   }
 
   function openSavedView() {
     if (!isSavedRoute()) {
       enteredViaPush = true;
       try {
-        history.pushState(null, '', SAVED_HASH);
+        hist.pushState(null, '', SAVED_HASH);
       } catch (e) {
-        window.location.hash = SAVED_HASH;
+        win.location.hash = SAVED_HASH;
       }
     }
     syncSavedViewState();
@@ -512,35 +577,35 @@
     if (isSavedRoute()) {
       if (enteredViaPush) {
         enteredViaPush = false;
-        history.back(); // popstate → syncSavedViewState() removes the overlay
+        hist.back(); // popstate → syncSavedViewState() removes the overlay
       } else {
         // Opened via direct URL load — drop the hash in place, no reload.
-        const target = window.location.pathname + window.location.search;
+        const target = win.location.pathname + win.location.search;
         try {
-          history.replaceState(null, '', target);
+          hist.replaceState(null, '', target);
         } catch (e) {
-          window.location.hash = '';
+          win.location.hash = '';
         }
       }
     }
-    syncSavedViewState(); // belt & braces
+    syncSavedViewState();
   }
 
   function computeOverlayBounds() {
     // Cover exactly Framer's content area (right of the sidebar).
-    const main = document.querySelector('main, [role="main"], [class*="content"]');
+    const main = doc.querySelector('main, [role="main"], [class*="content"]');
     if (main) {
       const r = main.getBoundingClientRect();
       if (r.width > 120 && r.left >= 0) {
         return {
           top: Math.max(0, r.top),
-          right: Math.max(0, window.innerWidth - r.right),
-          bottom: Math.max(0, window.innerHeight - r.bottom),
+          right: Math.max(0, win.innerWidth - r.right),
+          bottom: Math.max(0, win.innerHeight - r.bottom),
           left: Math.max(0, r.left)
         };
       }
     }
-    const aside = document.querySelector('aside, [class*="sidebar"]');
+    const aside = doc.querySelector('aside, [class*="sidebar"]');
     if (aside) {
       const r = aside.getBoundingClientRect();
       return { top: Math.max(0, r.top), right: 0, bottom: 0, left: Math.max(0, r.right) };
@@ -549,10 +614,10 @@
   }
 
   function buildSavedOverlay() {
-    if (document.getElementById(OVERLAY_ID)) return;
+    if (doc.getElementById(OVERLAY_ID)) return;
 
     const bounds = computeOverlayBounds();
-    const overlay = document.createElement('div');
+    const overlay = doc.createElement('div');
     overlay.id = OVERLAY_ID;
     overlay.className = 'framer-saved-overlay';
     overlay.style.top = bounds.top + 'px';
@@ -590,7 +655,7 @@
       '  <div id="framer-saved-grid" class="framer-saved-grid"></div>' +
       '</div>';
 
-    document.body.appendChild(overlay);
+    doc.body.appendChild(overlay);
 
     // Back button
     overlay.querySelector('.framer-saved-back-btn').addEventListener('click', function () {
@@ -622,15 +687,16 @@
     });
 
     renderSavedGrid();
+
     // Focus search unless the collection is empty.
     setTimeout(function () {
       const input = overlay.querySelector('#framer-saved-search');
-      if (input && savedItems.length > 0 && window.innerWidth > 640) input.focus();
+      if (input && savedItems.length > 0 && win.innerWidth > 640) input.focus();
     }, 50);
   }
 
   function renderSavedGrid() {
-    const grid = document.getElementById('framer-saved-grid');
+    const grid = doc.getElementById('framer-saved-grid');
     if (!grid) return;
 
     const q = (currentSearchQuery || '').toLowerCase().trim();
@@ -709,7 +775,7 @@
   }
 
   function syncSavedViewState() {
-    const overlay = document.getElementById(OVERLAY_ID);
+    const overlay = doc.getElementById(OVERLAY_ID);
     const active = isSavedRoute();
 
     if (active) {
@@ -719,7 +785,7 @@
       currentSearchQuery = '';
     }
 
-    document.querySelectorAll('.framer-saved-nav-item').forEach(function (el) {
+    doc.querySelectorAll('.framer-saved-nav-item').forEach(function (el) {
       el.classList.toggle('active', active);
     });
   }
@@ -765,30 +831,51 @@
   }
 
   // ------------------------------------------------------------
+  // Cleanup stale UI on page change
+  // ------------------------------------------------------------
+  function clearStaleInjectedUi() {
+    doc.querySelectorAll('.framer-saved-detail-btn, .framer-saved-card-inline-btn').forEach(function (el) {
+      el.remove();
+    });
+  }
+
+  // ------------------------------------------------------------
   // History / routing hooks — make sure the view always closes
   // ------------------------------------------------------------
   function patchHistoryAPI() {
-    const originalPushState = history.pushState;
-    const originalReplaceState = history.replaceState;
+    const originalPushState = hist.pushState;
+    const originalReplaceState = hist.replaceState;
 
-    history.pushState = function () {
+    hist.pushState = function () {
       const ret = originalPushState.apply(this, arguments);
-      setTimeout(syncSavedViewState, 20);
+      setTimeout(function () {
+        syncSavedViewState();
+        injectAll();
+      }, 20);
       return ret;
     };
 
-    history.replaceState = function () {
+    hist.replaceState = function () {
       const ret = originalReplaceState.apply(this, arguments);
-      setTimeout(syncSavedViewState, 20);
+      setTimeout(function () {
+        syncSavedViewState();
+        injectAll();
+      }, 20);
       return ret;
     };
 
-    window.addEventListener('popstate', syncSavedViewState);
-    window.addEventListener('hashchange', syncSavedViewState);
+    win.addEventListener('popstate', function () {
+      syncSavedViewState();
+      injectAll();
+    });
+    win.addEventListener('hashchange', function () {
+      syncSavedViewState();
+      injectAll();
+    });
 
     // If Framer's router doesn't react to a sidebar click (e.g. the link points
     // to the page we are already on), force-close the overlay ourselves.
-    document.addEventListener(
+    doc.addEventListener(
       'click',
       function (e) {
         const link = e.target && e.target.closest ? e.target.closest('a') : null;
@@ -805,10 +892,10 @@
           try {
             targetPath = new URL(link.href, ORIGIN).pathname;
           } catch (err) { /* ignore */ }
-          if (targetPath === window.location.pathname) {
+          if (targetPath === win.location.pathname) {
             // Same-page link while in saved view → drop the hash ourselves.
             try {
-              history.replaceState(null, '', window.location.pathname + window.location.search);
+              hist.replaceState(null, '', win.location.pathname + win.location.search);
             } catch (err) { /* ignore */ }
           }
           syncSavedViewState();
@@ -818,7 +905,7 @@
     );
 
     // Escape always closes the saved view.
-    document.addEventListener('keydown', function (e) {
+    doc.addEventListener('keydown', function (e) {
       if (e.key === 'Escape' && isSavedRoute()) {
         e.preventDefault();
         closeSavedView();
@@ -830,34 +917,42 @@
   // Injection pipeline
   // ------------------------------------------------------------
   function injectAll() {
+    if (urlChanged()) clearStaleInjectedUi();
     try {
       injectSidebarTab();
+    } catch (err) { warn(err); }
+    try {
       injectDetailBookmarkButton();
+    } catch (err) { warn(err); }
+    try {
       injectCardBookmarkButtons();
-    } catch (err) {
-      // Never let an injection error break Framer's page.
-      if (window.console && console.warn) console.warn('Framer Saved injection error:', err);
-    }
+    } catch (err) { warn(err); }
+    try {
+      syncSavedViewState();
+    } catch (err) { warn(err); }
   }
 
   function initApp() {
     patchHistoryAPI();
 
-    const scheduleInject = debounce(injectAll, 150);
-
     const observer = new MutationObserver(function () {
-      scheduleInject();
-      syncSavedViewState(); // cheap; keeps the overlay alive across SPA re-renders
+      try {
+        scheduleInject();
+        syncSavedViewState(); // cheap; keeps the overlay alive across SPA re-renders
+      } catch (err) { warn(err); }
     });
-    observer.observe(document.body, { childList: true, subtree: true });
+    observer.observe(doc.body, { childList: true, subtree: true });
 
     // Safety net for SPA transitions MutationObserver might miss.
     setInterval(function () {
-      if (!document.hidden) injectAll();
-    }, 1500);
+      if (!doc.hidden) {
+        if (urlChanged()) injectAll();
+        else scheduleInject();
+      }
+    }, 500);
 
-    window.addEventListener('scroll', function () {
-      if (!document.hidden) injectCardBookmarkButtons();
+    win.addEventListener('scroll', function () {
+      if (!doc.hidden) injectCardBookmarkButtons();
     }, { passive: true });
 
     injectAll();
@@ -879,7 +974,9 @@
       parseTitleAndSubtitle: parseTitleAndSubtitle,
       isItemSaved: isItemSaved,
       findIndexById: findIndexById,
-      toggleSaveItem: toggleSaveItem
+      toggleSaveItem: toggleSaveItem,
+      findTile: findTile,
+      findCtaButton: findCtaButton
     };
   }
 })();
