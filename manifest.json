@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "Framer Saved Components & Favorites",
+  "version": "1.0.0",
+  "description": "Adds a native Saved/Favorites tab to Framer Marketplace sidebar and bookmark buttons to component pages.",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://www.framer.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.framer.com/*"
+      ],
+      "css": [
+        "styles.css"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_end"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Framer Saved Components"
+  }
+}
