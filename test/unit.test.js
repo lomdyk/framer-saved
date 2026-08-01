@@ -94,6 +94,26 @@ eq(migrated.length, 2, 'drops duplicates and junk entries');
 eq(migrated[0].id, 'community/marketplace/components/foo', 'legacy underscore id migrated to path form');
 eq(migrated[1].url, 'https://www.framer.com/community/marketplace/components/bar/', 'url canonicalized');
 
+console.log('isItemSaved / findIndexById — trailing slash tolerance');
+const slugUrl = 'https://www.framer.com/community/marketplace/components/foo/';
+api.toggleSaveItem({
+  id: api.normalizeId(slugUrl),
+  url: slugUrl,
+  title: 'Foo', price: 'Free', creator: 'X', thumbnail: ''
+});
+eq(api.isItemSaved('https://www.framer.com/community/marketplace/components/foo'), true, 'isItemSaved matches url without trailing slash');
+eq(api.isItemSaved('https://www.framer.com/community/marketplace/components/foo/'), true, 'isItemSaved matches url with trailing slash');
+eq(api.findIndexById('https://www.framer.com/community/marketplace/components/foo'), 0, 'findIndexById finds by url without trailing slash');
+api.toggleSaveItem({ id: api.normalizeId(slugUrl), url: slugUrl, title: 'Foo', price: 'Free', creator: 'X', thumbnail: '' }); // remove
+
+console.log('normalizeId — encoded characters');
+eq(api.normalizeId('https://www.framer.com/community/marketplace/components/hello%20world/'),
+  'community/marketplace/components/hello world', 'decodes %20 in normalizeId');
+
+console.log('canonicalUrl — no double-encoding');
+eq(api.canonicalUrl('https://www.framer.com/community/marketplace/components/hello%20world/'),
+  'https://www.framer.com/community/marketplace/components/hello%20world/', 'canonicalUrl does not double-encode %20');
+
 console.log('toggleSaveItem / dedupe across entry points');
 const metaCard = {
   id: 'community/marketplace/components/foo',
