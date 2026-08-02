@@ -139,12 +139,23 @@
     };
   }
 
+  function stripUrlToPath(href) {
+    // Defensive fallback used when the URL constructor is unavailable:
+    // drop scheme://host, query and hash, and normalize slashes.
+    return String(href || '')
+      .trim()
+      .replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]+/i, '')
+      .replace(/[?#].*$/, '')
+      .replace(/^\/+|\/+$/g, '')
+      .toLowerCase();
+  }
+
   function normalizeId(href) {
     try {
       const u = new URL(href, ORIGIN);
       return u.pathname.split('/').filter(Boolean).map(decodeURIComponent).join('/').toLowerCase();
     } catch (e) {
-      return String(href || '').toLowerCase().replace(/^\/+|\/+$/g, '');
+      return stripUrlToPath(href);
     }
   }
 
@@ -156,7 +167,8 @@
       });
       return ORIGIN + '/' + decoded.map(encodeURIComponent).join('/') + '/';
     } catch (e) {
-      return String(href || '');
+      const path = stripUrlToPath(href);
+      return path ? ORIGIN + '/' + path + '/' : String(href || '');
     }
   }
 
@@ -224,16 +236,31 @@
     return idx > -1 ? savedItems[idx] : null;
   }
 
+  const MARKETPLACE_MOUNT = '(?:\\/community)?\\/marketplace\\/';
+  const MARKETPLACE_TYPES = '(components|templates|vectors|plugins)';
+  // Listing-only slugs that live under a type root but are NOT detail pages
+  const MARKETPLACE_LISTING_SLUGS = '(?:featured|categories?|tags?|collections?|search|new|trending)';
+  // Matches card links pointing at a component/template/vector/plugin detail page.
+  // Unanchored so it works for both relative hrefs and absolute URLs on any mount
+  // (/marketplace/... or /community/marketplace/...).
+  const DETAIL_URL_RE = /\/marketplace\/(components|templates|vectors|plugins)\/[^/?#]+\/?$/;
+
   function isMarketplacePage() {
     if (!win.location) return false;
-    return /^\/community\/marketplace\//.test(win.location.pathname);
+    return new RegExp('^' + MARKETPLACE_MOUNT).test(win.location.pathname);
   }
 
   function isDetailPage() {
     if (!win.location) return false;
-    return /^\/community\/marketplace\/(components|templates|vectors|plugins)\/[^/]+\/?$/.test(
-      win.location.pathname
+    const re = new RegExp(
+      '^' + MARKETPLACE_MOUNT + MARKETPLACE_TYPES + '\\/(?!' + MARKETPLACE_LISTING_SLUGS + '\\/?$)[^/]+\\/?$'
     );
+    return re.test(win.location.pathname);
+  }
+
+  function isCardDetailHref(href) {
+    if (!DETAIL_URL_RE.test(href)) return false;
+    return !/\/(categories|tags|author|creator|collections|featured)\/?/i.test(href);
   }
 
   function classNameOf(el) {
@@ -837,20 +864,31 @@
 
   function updateAllBtnStates(targetItemId) {
     const currentDetailId = isDetailPage() ? normalizeId(win.location.href) : null;
+    const needle = targetItemId ? normalizeId(targetItemId) : null;
 
     doc.querySelectorAll('.framer-saved-detail-btn').forEach(function (btn) {
-      if (!targetItemId || !currentDetailId || normalizeId(targetItemId) === currentDetailId) {
-        const saved = isItemSaved(currentDetailId || targetItemId);
-        updateDetailBtnContent(btn, saved);
+      const pinnedId = btn.getAttribute('data-id');
+      // On a detail page every detail-save button refers to the current page.
+      // Elsewhere (shouldn't normally happen) only touch buttons for the
+      // affected item, identified by their pinned data-id.
+      if (currentDetailId) {
+        updateDetailBtnContent(btn, isItemSaved(currentDetailId));
+      } else if (pinnedId && (!needle || normalizeId(pinnedId) === needle)) {
+        updateDetailBtnContent(btn, isItemSaved(pinnedId));
+      } else if (!pinnedId && needle) {
+        updateDetailBtnContent(btn, isItemSaved(needle));
       }
     });
 
     doc.querySelectorAll('.framer-saved-card-inline-btn').forEach(function (btn) {
       let btnId = btn.getAttribute('data-id');
       if (!btnId) {
-        const link = btn.closest('a[href]') || (btn.parentElement && btn.parentElement.querySelector('a[href]'));
-        if (link) {
-          btnId = normalizeId(link.href);
+        // Legacy fallback only: buttons are now pinned with data-id at injection
+        // time. Never guess from arbitrary in-tile anchors (creator/category
+        // links) — that produced wrong states.
+        const link = btn.closest('a[href]');
+        if (link && isCardDetailHref(link.getAttribute('href') || '')) {
+          btnId = normalizeId(link.getAttribute('href'));
           btn.setAttribute('data-id', btnId);
         }
       }
@@ -1053,7 +1091,9 @@
   }
 
   function injectSidebarTab() {
-    if (!win.location || !win.location.pathname || !win.location.pathname.includes('/community/')) return;
+    const path = (win.location && win.location.pathname) || '';
+    const inMarketplace = isMarketplacePage() || path.includes('/community/');
+    if (!inMarketplace) return;
     if (doc.querySelector('.framer-saved-nav-item')) return;
 
     const ctx = findSidebarContext();
@@ -1096,30 +1136,43 @@
     const ctaBtn = findCtaButton();
     if (!ctaBtn || !ctaBtn.parentElement) return;
 
-    const siblings = Array.prototype.slice.call(ctaBtn.parentElement.children);
-    const hasSave = siblings.some(function (s) {
+    const parent = ctaBtn.parentElement;
+    const siblings = Array.prototype.slice.call(parent.children);
+    const existingSave = siblings.filter(function (s) {
       return s.classList && s.classList.contains('framer-saved-detail-btn');
     });
-    const hasExport = siblings.some(function (s) {
+    const existingExport = siblings.filter(function (s) {
       return s.classList && s.classList.contains('framer-saved-export-detail-btn');
     });
 
     const metadata = getCurrentPageMetadata();
     const saved = isItemSaved(metadata.id);
 
-    if (!hasSave) {
+    if (existingSave.length === 0) {
       const btn = doc.createElement('button');
       btn.type = 'button';
+      btn.setAttribute('data-id', metadata.id);
       updateDetailBtnContent(btn, saved);
       btn.addEventListener('click', function (e) {
         e.preventDefault();
         e.stopPropagation();
         openSavePopover(getCurrentPageMetadata(), btn);
       });
-      ctaBtn.parentElement.insertBefore(btn, ctaBtn);
+      parent.insertBefore(btn, ctaBtn);
+    } else {
+      // Self-heal: always re-sync the visible state of already injected buttons.
+      // Without this, a stale "Saved" (blue) state could stick around after the
+      // item was removed elsewhere (popover, overlay, another tab).
+      existingSave.forEach(function (btn) {
+        if (!btn.getAttribute('data-id')) btn.setAttribute('data-id', metadata.id);
+        updateDetailBtnContent(btn, saved);
+      });
     }
 
-    if (!hasExport && settings.ui && settings.ui.showExportBtn) {
+    const showExport = !!(settings.ui && settings.ui.showExportBtn);
+    if (!showExport) {
+      existingExport.forEach(function (b) { b.remove(); });
+    } else if (existingExport.length === 0) {
       const prevLink = findPreviewLink();
       if (prevLink) {
         const ebtn = doc.createElement('button');
@@ -1132,7 +1185,7 @@
           e.stopPropagation();
           triggerExport(getCurrentPageMetadata());
         });
-        ctaBtn.parentElement.insertBefore(ebtn, ctaBtn);
+        parent.insertBefore(ebtn, ctaBtn);
       }
     }
   }
@@ -1215,7 +1268,8 @@
 
   function ensurePositioned(el) {
     try {
-      if (win.getComputedStyle(el).position === 'static') el.style.position = 'relative';
+      const pos = win.getComputedStyle(el).position;
+      if (!pos || pos === 'static') el.style.position = 'relative';
     } catch (e) { /* ignore */ }
   }
 
@@ -1238,8 +1292,7 @@
       if (link.closest('nav, aside, [class*="sidebar"], [class*="breadcrumb"], [class*="breadCrumb"], [class*="Breadcrumb"]')) continue;
       if (link.closest('#' + OVERLAY_ID)) continue;
 
-      if (!/\/marketplace\/(components|templates|vectors|plugins)\/[^/?#]+\/?$/.test(href)) continue;
-      if (/\/(categories|tags|author|creator|collections)\/?/i.test(href)) continue;
+      if (!isCardDetailHref(href)) continue;
 
       const tile = findTile(link);
       if (!tile) continue;
@@ -1254,6 +1307,10 @@
 
       const actionBtn = doc.createElement('button');
       actionBtn.type = 'button';
+      // Pin the detail-item id at injection time. Without this, state sync used
+      // to fall back to "first <a> inside the tile" which can be a creator /
+      // category link — leaving the button visually out of sync.
+      actionBtn.setAttribute('data-id', cardId);
       setCardBtnState(actionBtn, saved);
 
       actionBtn.addEventListener('click', function (e) {
@@ -1288,16 +1345,16 @@
         openSavePopover(meta, actionBtn);
       });
 
-      if (link && link.style) {
-        try {
-          if (!link.style.zIndex || parseInt(link.style.zIndex, 10) < 4) {
-            link.style.zIndex = '4';
-          }
-          link.style.pointerEvents = 'auto';
-        } catch (e) { /* ignore */ }
-      }
-
+      // Keep our button visible & clickable without touching Framer's own nodes.
+      // The tile (and only the tile) gets position:relative + a modest z-index so
+      // the button paints above full-card overlay links/stretched thumbnails,
+      // regardless of whether that overlay sits inside the tile or next to it.
       ensurePositioned(tile);
+      try {
+        if (!tile.style.zIndex || parseInt(tile.style.zIndex, 10) < 5) {
+          tile.style.zIndex = '5';
+        }
+      } catch (e) { /* ignore */ }
       tile.appendChild(actionBtn);
     }
   }
@@ -2108,6 +2165,89 @@
   }
 
   // ------------------------------------------------------------
+  // Guaranteed card navigation fallback
+  // ------------------------------------------------------------
+  // Framer's grid cards sometimes render decorative layers (interactive
+  // thumbnails, stretched overlay wrappers) above the card link. When such a
+  // layer swallows a click, the browser never sees an interactive target and
+  // nothing navigates. This capture-phase watcher notices a "dead" click
+  // inside a card tile, gives the site's own handlers a beat (SPA routers act
+  // synchronously), and then replays the click on the card's real link —
+  // falling back to a hard navigation if the replay was swallowed as well.
+  function attachCardNavFallback() {
+    if (!doc.addEventListener) return;
+
+    doc.addEventListener('click', function (e) {
+      // Only plain primary-button clicks without modifiers
+      if (!e || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      if (!isMarketplacePage() || isDetailPage()) return;
+      const t = e.target;
+      if (!t || t.nodeType !== 1 || !t.closest) return;
+
+      // Never hijack clicks meant for our own UI
+      if (t.closest(
+        '#' + OVERLAY_ID + ', #' + POPOVER_ID + ', .framer-saved-popover, .framer-saved-toast, ' +
+        '.framer-saved-settings-panel, .framer-saved-nav-item, .framer-saved-card-inline-btn, ' +
+        '.framer-saved-card-export-btn, .framer-saved-detail-btn, .framer-saved-export-detail-btn, ' +
+        '.framer-saved-export-progress'
+      )) return;
+
+      // A native interactive element already handles this click
+      if (t.closest('a[href], button, [role="button"], input, textarea, select, option, label, summary')) return;
+
+      // Find a plausible card tile around the click target
+      let node = t;
+      let tileEl = null;
+      for (let i = 0; i < 10 && node && node !== doc.body && node !== doc.documentElement; i++) {
+        const cls = classNameOf(node);
+        if (/card|tile|post|item|product|showcase/i.test(cls) || node.tagName === 'ARTICLE' || node.tagName === 'LI') {
+          tileEl = node;
+        }
+        node = node.parentElement;
+      }
+      if (!tileEl) return;
+
+      // Pick the card's detail link whose box actually contains the click point
+      const links = tileEl.querySelectorAll('a[href*="/marketplace/"]');
+      let best = null;
+      for (let i = 0; i < links.length; i++) {
+        const lk = links[i];
+        if (!isCardDetailHref(lk.getAttribute('href') || '')) continue;
+        let r = null;
+        try { r = lk.getBoundingClientRect(); } catch (err) { /* ignore */ }
+        if (!r || r.width < 12 || r.height < 12) continue;
+        if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
+          const area = r.width * r.height;
+          if (!best || area > best.area) best = { link: lk, href: lk.href, area: area };
+        }
+      }
+      if (!best) return;
+
+      const beforeKey = currentUrlKey();
+      setTimeout(function () {
+        if (e.defaultPrevented) return;               // the site claimed the click
+        if (currentUrlKey() !== beforeKey) return;    // SPA navigation happened on its own
+        if (doc.hidden) return;
+        // Don't yank the user away while they're selecting text on the card
+        try {
+          const sel = typeof win.getSelection === 'function' ? win.getSelection() : null;
+          if (sel && !sel.isCollapsed) return;
+        } catch (err) { /* ignore */ }
+        try {
+          const ev = new win.MouseEvent('click', { bubbles: true, cancelable: true, view: win, button: 0 });
+          best.link.dispatchEvent(ev);
+        } catch (err) { /* ignore */ }
+        setTimeout(function () {
+          if (currentUrlKey() !== beforeKey) return;
+          if (doc.hidden) return;
+          // Even the replayed click was swallowed — navigate directly.
+          try { win.location.assign(best.href); } catch (err) { /* ignore */ }
+        }, 180);
+      }, 90);
+    }, true);
+  }
+
+  // ------------------------------------------------------------
   // Injection pipeline
   // ------------------------------------------------------------
   function injectAll() {
@@ -2131,6 +2271,7 @@
 
   function initApp() {
     patchHistoryAPI();
+    attachCardNavFallback();
 
     if (typeof MutationObserver !== 'undefined' && doc.body) {
       const observer = new MutationObserver(function () {

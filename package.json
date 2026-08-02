@@ -4,7 +4,7 @@
   "description": "Lightweight Chrome extension adding bookmarking and a native Saved collection tab to Framer Marketplace",
   "main": "content.js",
   "scripts": {
-    "test": "node test/unit.test.js && node test/integration.test.js"
+    "test": "node test/unit.test.js && node test/integration.test.js && node test/bugfix.test.js"
   },
   "keywords": [
     "framer",
@@ -15,7 +15,7 @@
   "author": "lomdyk",
   "license": "MIT",
   "devDependencies": {
-    "jsdom": "^26.0.0"
+    "jsdom": "^26.1.0"
   },
   "dependencies": {
     "jszip": "^3.10.1"

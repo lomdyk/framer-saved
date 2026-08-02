@@ -146,7 +146,9 @@ async function runTests() {
 
   // Blob/URL stub for download
   window.Blob = class { constructor(parts) { this.parts = parts; } };
-  window.URL = { createObjectURL: () => 'blob:mock', revokeObjectURL: () => {} };
+  // Keep the real URL constructor — only stub the blob-url helpers jsdom lacks
+  window.URL.createObjectURL = () => 'blob:mock';
+  window.URL.revokeObjectURL = () => {};
   window.FileReader = class {
     readAsDataURL() { this.result = 'data:application/octet-stream;base64,'; setTimeout(() => this.onload && this.onload(), 0); }
     readAsText() { this.result = '{}'; setTimeout(() => this.onload && this.onload(), 0); }

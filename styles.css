@@ -179,31 +179,19 @@
 /* ------------------------------------------------------------
    Marketplace grid card bookmark + export icons
    ------------------------------------------------------------ */
-/* Ensure Framer's full-card link action overlay sits above decorative thumbnail wrappers, but below our action buttons */
-a[class*="linkAction"],
-a[class*="LinkAction"] {
-  z-index: 4 !important;
-  pointer-events: auto !important;
-}
-
-/* Ensure decorative thumbnail containers do not capture clicks away from the card link */
-div[class*="interactive-thumbnail"],
-div[class*="interactiveThumbnail"] {
-  pointer-events: none !important;
-}
-
-div[class*="interactive-thumbnail"] button,
-div[class*="interactiveThumbnail"] button,
-div[class*="interactive-thumbnail"] a,
-div[class*="interactiveThumbnail"] a {
-  pointer-events: auto !important;
-}
-
+/* NOTE: we deliberately do NOT restyle Framer's own elements (no pointer-events /
+   z-index overrides on their links or thumbnail layers). Previous !important
+   hacks broke both the site's own card navigation and this button, depending on
+   where the full-card overlay link sits in the DOM. Instead the injected tile
+   gets position:relative + z-index:5 from JS, and our own buttons float above
+   any in-card overlay via the stacking context below. Card clicks that still
+   land on dead decorative layers are re-routed by the click-fallback in JS. */
 .framer-saved-card-inline-btn {
   position: absolute;
   top: 12px;
   left: 12px;
-  z-index: 5;
+  z-index: 7;
+  pointer-events: auto !important;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -243,7 +231,8 @@ div[class*="interactiveThumbnail"] a {
   position: absolute;
   top: 12px;
   right: 12px;
-  z-index: 5;
+  z-index: 7;
+  pointer-events: auto !important;
   display: inline-flex;
   align-items: center;
   justify-content: center;
