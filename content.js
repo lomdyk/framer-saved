@@ -21,12 +21,7 @@
   const hist = typeof history !== 'undefined' ? history : {};
   const ORIGIN = win.location ? win.location.origin : 'https://www.framer.com';
 
-  const DEFAULT_FOLDERS = [
-    { id: 'minimalist', name: 'Minimalist' },
-    { id: '3d-motion', name: '3D & Motion' },
-    { id: 'dark-ui', name: 'Dark UI' },
-    { id: 'interactions', name: 'Interactions' }
-  ];
+  const DEFAULT_FOLDERS = [];
 
   const DEFAULT_SETTINGS = {
     export: {
@@ -187,7 +182,7 @@
   function normalizeStoredFolders(raw) {
     const seen = {};
     const result = [];
-    const input = Array.isArray(raw) && raw.length > 0 ? raw : DEFAULT_FOLDERS;
+    const input = Array.isArray(raw) ? raw : [];
 
     input.forEach(function (f) {
       if (!f || typeof f !== 'object') return;
@@ -198,7 +193,7 @@
       seen[id] = true;
       result.push({ id: id, name: name });
     });
-    return result.length > 0 ? result : DEFAULT_FOLDERS.slice();
+    return result;
   }
 
   function mergeSettings(raw) {
@@ -450,8 +445,6 @@
   function deleteFolder(id) {
     const idx = savedFolders.findIndex(function (f) { return f.id === id; });
     if (idx === -1) return false;
-    // Don't allow deleting default folders
-    if (DEFAULT_FOLDERS.some(function (d) { return d.id === id; })) return false;
     savedFolders.splice(idx, 1);
     // Remove this folder from items
     savedItems.forEach(function (it) {
@@ -1336,6 +1329,9 @@
       '      <button type="button" class="framer-saved-btn framer-saved-btn-ghost framer-saved-import-btn" title="Import Framer Marketplace links">' +
       '        ' + ICON_PLUS + '<span>Import Links</span>' +
       '      </button>' +
+      '      <button type="button" class="framer-saved-btn framer-saved-btn-ghost framer-saved-export-links-btn" title="Copy &amp; download links from selected folder">' +
+      '        ' + ICON_DOWNLOAD + '<span class="framer-saved-export-links-label">Export Links</span>' +
+      '      </button>' +
       '      <button type="button" class="framer-saved-btn framer-saved-btn-ghost framer-saved-settings-btn" title="Settings">' +
       '        ' + ICON_SETTINGS + '<span>Settings</span>' +
       '      </button>' +
@@ -1379,6 +1375,11 @@
     const settingsBtn = overlay.querySelector('.framer-saved-settings-btn');
     if (settingsBtn) {
       settingsBtn.addEventListener('click', toggleSettingsPanel);
+    }
+
+    const exportLinksBtn = overlay.querySelector('.framer-saved-export-links-btn');
+    if (exportLinksBtn) {
+      exportLinksBtn.addEventListener('click', exportFolderLinks);
     }
 
     const importPanel = overlay.querySelector('.framer-saved-import-panel');
@@ -1601,6 +1602,42 @@
     showToast('Backup exported');
   }
 
+  function exportFolderLinks() {
+    const activeFolderObj = savedFolders.find(function (f) { return f.id === activeFolderId; });
+    const folderName = activeFolderId === 'all' ? 'All Items' : (activeFolderObj ? activeFolderObj.name : 'Folder');
+
+    const itemsToExport = savedItems.filter(function (item) {
+      if (activeFolderId === 'all') return true;
+      return Array.isArray(item.folders) && item.folders.includes(activeFolderId);
+    });
+
+    if (itemsToExport.length === 0) {
+      showToast('No items in ' + folderName + ' to export');
+      return;
+    }
+
+    const urls = itemsToExport.map(function (item) { return item.url; }).join('\n');
+
+    if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(urls).catch(function () { /* ignore */ });
+    }
+
+    const blob = new Blob([urls], { type: 'text/plain' });
+    const blobUrl = URL.createObjectURL(blob);
+    const a = doc.createElement('a');
+    a.href = blobUrl;
+    const safeSlug = slugify(folderName) || 'links';
+    a.download = 'framer-saved-links-' + safeSlug + '.txt';
+    if (doc.body) doc.body.appendChild(a);
+    a.click();
+    setTimeout(function () {
+      a.remove();
+      URL.revokeObjectURL(blobUrl);
+    }, 100);
+
+    showToast('Exported ' + itemsToExport.length + ' link' + (itemsToExport.length === 1 ? '' : 's') + ' from "' + folderName + '" (copied to clipboard)');
+  }
+
   function renderFolderPills() {
     const bar = doc.getElementById('framer-saved-folder-bar');
     if (!bar) return;
@@ -1613,15 +1650,13 @@
 
     savedFolders.forEach(function (f) {
       const count = getItemFolderCount(f.id);
-      const isDefault = DEFAULT_FOLDERS.some(function (d) { return d.id === f.id; });
-      const hasDel = !isDefault;
       html +=
-        '<div class="framer-saved-folder-pill-wrap' + (hasDel ? ' has-del' : '') + '">' +
+        '<div class="framer-saved-folder-pill-wrap has-del">' +
         '<button type="button" class="framer-saved-folder-pill' + (activeFolderId === f.id ? ' active' : '') + '" data-folder-id="' + esc(f.id) + '">' +
         '  <span>' + esc(f.name) + '</span>' +
         '  <span class="pill-count">' + count + '</span>' +
         '</button>' +
-        (hasDel ? '<button class="framer-saved-folder-pill-del" type="button" data-folder-id="' + esc(f.id) + '" title="Delete folder">' + ICON_CLOSE + '</button>' : '') +
+        '<button class="framer-saved-folder-pill-del" type="button" data-folder-id="' + esc(f.id) + '" title="Delete folder">' + ICON_CLOSE + '</button>' +
         '</div>';
     });
 
@@ -1631,6 +1666,13 @@
       '</button>';
 
     bar.innerHTML = html;
+
+    // Dynamic Export Links button label update
+    const activeFolderObj = savedFolders.find(function (f) { return f.id === activeFolderId; });
+    const labelEl = doc.querySelector('.framer-saved-export-links-label');
+    if (labelEl) {
+      labelEl.textContent = activeFolderId === 'all' ? 'Export Links' : 'Export "' + (activeFolderObj ? activeFolderObj.name : '') + '" Links';
+    }
 
     bar.querySelectorAll('.framer-saved-folder-pill[data-folder-id]').forEach(function (pill) {
       pill.addEventListener('click', function () {

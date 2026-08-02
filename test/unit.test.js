@@ -111,12 +111,8 @@ eq(inFolder, true, 'adds item to folder');
 const removedFolder = api.toggleItemFolder(testItemUrl, 'test-folder-unit');
 eq(removedFolder, false, 'toggles item out of folder');
 
-// deleteFolder should not delete default folders
-const delMinimalist = api.deleteFolder('minimalist');
-eq(delMinimalist, false, 'cannot delete default folder');
-
 const delCustom = api.deleteFolder('test-folder-unit');
-eq(delCustom, true, 'can delete custom folder');
+eq(delCustom, true, 'can delete user created folder');
 
 console.log('isItemSaved / findIndexById — trailing slash tolerance');
 const slugUrl = 'https://www.framer.com/community/marketplace/components/foo-slug/';
