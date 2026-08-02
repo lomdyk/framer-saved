@@ -488,6 +488,7 @@
           const fId = el.getAttribute('data-folder-id');
           const isNowInFolder = toggleItemFolder(itemNormId, fId);
           renderPopoverContent();
+          renderFolderPills();
           showToast(isNowInFolder ? 'Added to folder' : 'Removed from folder');
           updateAllBtnStates(itemNormId);
         });
@@ -512,6 +513,7 @@
           toggleItemFolder(itemNormId, created.id);
           addInput.value = '';
           renderPopoverContent();
+          renderFolderPills();
           showToast('Created folder "' + created.name + '"');
         }
       }
@@ -543,6 +545,7 @@
             saveItemsToStorage();
             showToast('Removed from Saved');
             updateAllBtnStates(itemNormId);
+            renderFolderPills();
             const overlay = doc.getElementById(OVERLAY_ID);
             if (overlay) renderSavedGrid();
           }
@@ -1148,17 +1151,17 @@
       const parsed = parseTitleAndSubtitle(item.title);
       const title = parsed.title || 'Framer Component';
 
-      let folderTagsHtml = '';
+      let folderTagsHtml = '<div class="framer-saved-card-folders">';
       if (Array.isArray(item.folders) && item.folders.length > 0) {
-        folderTagsHtml = '<div class="framer-saved-card-folders">';
         item.folders.forEach(function (fId) {
           const fObj = savedFolders.find(function (f) { return f.id === fId; });
           if (fObj) {
-            folderTagsHtml += '<span class="framer-saved-card-folder-tag">' + esc(fObj.name) + '</span>';
+            folderTagsHtml += '<button type="button" class="framer-saved-card-folder-tag" data-id="' + esc(item.id) + '" title="Manage folders">' + esc(fObj.name) + '</button>';
           }
         });
-        folderTagsHtml += '</div>';
       }
+      folderTagsHtml += '<button type="button" class="framer-saved-card-folder-tag framer-saved-card-add-folder-btn" data-id="' + esc(item.id) + '" title="Add to collection">' + ICON_PLUS + '<span>Folder</span></button>';
+      folderTagsHtml += '</div>';
 
       html +=
         '<div class="framer-saved-card" data-id="' + esc(item.id) + '">' +
@@ -1167,6 +1170,7 @@
         '      <span class="framer-saved-card-thumb-fallback">' + ICON_BOOKMARK + '</span>' +
         (item.thumbnail ? '      <img class="framer-saved-card-thumb" src="' + esc(item.thumbnail) + '" alt="' + esc(title) + '" loading="lazy" decoding="async" />' : '') +
         '    </span>' +
+        '    <button type="button" class="framer-saved-card-inline-btn is-saved" data-id="' + esc(item.id) + '" title="Manage folders or remove" aria-label="Manage folders">' + ICON_BOOKMARK_FILLED + '</button>' +
         '  </a>' +
         '  <div class="framer-saved-card-info">' +
         '    <div class="framer-saved-card-row1">' +
@@ -1192,6 +1196,19 @@
       }
       img.addEventListener('error', markBroken, { once: true });
       if (img.complete && img.naturalWidth === 0) markBroken();
+    });
+
+    // Wire popover triggers on card buttons & folder tags inside Saved Overlay
+    grid.querySelectorAll('.framer-saved-card-folder-tag, .framer-saved-card-inline-btn').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const itemId = btn.getAttribute('data-id');
+        const itemObj = getItemById(itemId);
+        if (itemObj) {
+          openSavePopover(itemObj, btn);
+        }
+      });
     });
 
     grid.querySelectorAll('.framer-saved-card-remove-btn').forEach(function (btn) {
@@ -1282,7 +1299,7 @@
   function clearStaleInjectedUi() {
     if (!doc.querySelectorAll) return;
     doc.querySelectorAll('.framer-saved-detail-btn, .framer-saved-card-inline-btn').forEach(function (el) {
-      el.remove();
+      if (!el.closest('#' + OVERLAY_ID)) el.remove();
     });
   }
 
