@@ -137,46 +137,49 @@
 }
 
 /* ------------------------------------------------------------
-   Marketplace grid card bookmark icon — overlay pill top right
+   Marketplace grid card bookmark icon — top-left square button
+   Identical in size (32x32px), backdrop-blur, and style to
+   Framer's native top-right overlayButton (#222222CC)
    ------------------------------------------------------------ */
 .framer-saved-card-inline-btn {
   position: absolute;
-  top: 10px;
-  right: 10px;
+  top: 12px;
+  left: 12px;
   z-index: 5;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   padding: 0;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  background: rgba(10, 10, 10, 0.55);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(34, 34, 34, 0.8);
   color: #ffffff;
   cursor: pointer;
   vertical-align: middle;
   flex-shrink: 0;
-  -webkit-backdrop-filter: blur(4px);
-  backdrop-filter: blur(4px);
-  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
 }
 
 .framer-saved-card-inline-btn:hover {
-  background: rgba(10, 10, 10, 0.8);
-  border-color: rgba(255, 255, 255, 0.4);
-  transform: scale(1.08);
+  background: rgba(34, 34, 34, 0.95);
+  border-color: rgba(255, 255, 255, 0.28);
+  transform: scale(1.05);
 }
 
 .framer-saved-card-inline-btn.is-saved {
-  border-color: rgba(0, 153, 255, 0.6);
-  background: rgba(0, 153, 255, 0.35);
+  border-color: rgba(0, 153, 255, 0.8);
+  background: rgba(0, 153, 255, 0.85);
   color: #ffffff;
 }
 
 .framer-saved-card-inline-btn.is-saved:hover {
-  background: rgba(0, 153, 255, 0.45);
+  background: #0099ff;
+  border-color: #0099ff;
 }
 
 /* ------------------------------------------------------------
