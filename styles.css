@@ -8,7 +8,7 @@
    - Strong ease-out: cubic-bezier(0.23, 1, 0.32, 1)
    - UI speed <= 200ms
    - No scale(0) — animate from scale(0.94) + opacity: 0
-   - Tactile active feedback: scale(0.97) on :active
+   - Tactile active feedback: scale(0.96) on :active
    ============================================================ */
 
 :root {
@@ -30,7 +30,7 @@
 }
 
 /* ------------------------------------------------------------
-   Tactile Press Feedback (Emil Kowalski rule: scale 0.97 on active)
+   Tactile Press Feedback (Emil Kowalski rule: scale 0.96 on active)
    ------------------------------------------------------------ */
 .framer-saved-btn,
 .framer-saved-card-inline-btn,
@@ -296,9 +296,9 @@
 }
 
 .framer-saved-popover-item.is-selected {
-  background: rgba(0, 153, 255, 0.14);
-  border-color: rgba(0, 153, 255, 0.4);
-  color: var(--fs-accent);
+  background: rgba(0, 153, 255, 0.2);
+  border-color: rgba(0, 153, 255, 0.6);
+  color: #ffffff;
   font-weight: 600;
 }
 
@@ -309,6 +309,7 @@
   width: 16px;
   height: 16px;
   color: var(--fs-accent);
+  flex-shrink: 0;
 }
 
 .framer-saved-popover-add {
