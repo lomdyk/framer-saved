@@ -37,14 +37,16 @@
 .framer-saved-detail-btn,
 .framer-saved-nav-item,
 .framer-saved-folder-pill,
-.framer-saved-popover-item {
+.framer-saved-popover-item,
+.framer-saved-card-folder-tag {
   transition: transform 140ms var(--fs-ease-out), background 140ms var(--fs-ease-out), border-color 140ms var(--fs-ease-out), opacity 140ms var(--fs-ease-out);
 }
 
 .framer-saved-btn:active,
 .framer-saved-card-inline-btn:active,
 .framer-saved-detail-btn:active,
-.framer-saved-folder-pill:active {
+.framer-saved-folder-pill:active,
+.framer-saved-card-folder-tag:active {
   transform: scale(0.96) !important;
 }
 
@@ -796,17 +798,40 @@
 
 .framer-saved-card-folders {
   display: flex;
-  gap: 4px;
+  gap: 6px;
   flex-wrap: wrap;
-  margin-top: 4px;
+  margin-top: 6px;
 }
 
 .framer-saved-card-folder-tag {
-  font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.06);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--fs-font);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
   color: var(--fs-text-secondary);
+  cursor: pointer;
+}
+
+.framer-saved-card-folder-tag:hover {
+  background: rgba(0, 153, 255, 0.16);
+  border-color: rgba(0, 153, 255, 0.4);
+  color: var(--fs-accent);
+}
+
+.framer-saved-card-add-folder-btn {
+  border-style: dashed;
+  color: var(--fs-text-muted);
+}
+
+.framer-saved-card-add-folder-btn:hover {
+  color: var(--fs-text);
+  border-color: var(--fs-border-strong);
 }
 
 /* Empty state */
