@@ -3,6 +3,12 @@
    Matches Framer Marketplace's dark design system:
    bg #0a0a0a · surface rgba(255,255,255,0.06) · border rgba(255,255,255,0.12)
    text #fff/#8a8f98 · accent #0099ff · radius 8px · Inter
+
+   Emil Kowalski Design Engineering Rules:
+   - Strong ease-out: cubic-bezier(0.23, 1, 0.32, 1)
+   - UI speed <= 200ms
+   - No scale(0) — animate from scale(0.94) + opacity: 0
+   - Tactile active feedback: scale(0.97) on :active
    ============================================================ */
 
 :root {
@@ -10,14 +16,36 @@
   --fs-surface: #141414;
   --fs-surface-hover: #1a1a1a;
   --fs-border: rgba(255, 255, 255, 0.12);
-  --fs-border-strong: rgba(255, 255, 255, 0.2);
+  --fs-border-strong: rgba(255, 255, 255, 0.22);
   --fs-text: #ffffff;
   --fs-text-secondary: #8a8f98;
   --fs-text-muted: #5c6169;
   --fs-accent: #0099ff;
+  --fs-accent-hover: #0a8ae8;
   --fs-danger: #ff2d55;
   --fs-radius: 8px;
   --fs-font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --fs-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --fs-ease-spring: cubic-bezier(0.175, 0.885, 0.32, 1.15);
+}
+
+/* ------------------------------------------------------------
+   Tactile Press Feedback (Emil Kowalski rule: scale 0.97 on active)
+   ------------------------------------------------------------ */
+.framer-saved-btn,
+.framer-saved-card-inline-btn,
+.framer-saved-detail-btn,
+.framer-saved-nav-item,
+.framer-saved-folder-pill,
+.framer-saved-popover-item {
+  transition: transform 140ms var(--fs-ease-out), background 140ms var(--fs-ease-out), border-color 140ms var(--fs-ease-out), opacity 140ms var(--fs-ease-out);
+}
+
+.framer-saved-btn:active,
+.framer-saved-card-inline-btn:active,
+.framer-saved-detail-btn:active,
+.framer-saved-folder-pill:active {
+  transform: scale(0.96) !important;
 }
 
 /* ------------------------------------------------------------
@@ -36,7 +64,6 @@
   font-weight: 500;
   line-height: 20px;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
   user-select: none;
   -webkit-user-select: none;
 }
@@ -105,17 +132,12 @@
   white-space: nowrap;
   vertical-align: middle;
   flex-shrink: 0;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .framer-saved-detail-btn:hover {
   background: rgba(255, 255, 255, 0.07);
   border-color: var(--fs-border-strong);
   color: var(--fs-text);
-}
-
-.framer-saved-detail-btn:active {
-  transform: scale(0.98);
 }
 
 .framer-saved-detail-btn .framer-saved-detail-btn-icon {
@@ -138,8 +160,6 @@
 
 /* ------------------------------------------------------------
    Marketplace grid card bookmark icon — top-left square button
-   Identical in size (32x32px), backdrop-blur, and style to
-   Framer's native top-right overlayButton (#222222CC)
    ------------------------------------------------------------ */
 .framer-saved-card-inline-btn {
   position: absolute;
@@ -162,7 +182,6 @@
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
 }
 
 .framer-saved-card-inline-btn:hover {
@@ -183,6 +202,251 @@
 }
 
 /* ------------------------------------------------------------
+   Pinterest / Awwwards Style Save Popover
+   Origin-aware entrance animation (Emil Kowalski Design Engineering)
+   ------------------------------------------------------------ */
+.framer-saved-popover {
+  position: fixed;
+  z-index: 2147483002;
+  width: 270px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(18, 18, 18, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  font-family: var(--fs-font);
+  color: var(--fs-text);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  transform-origin: var(--popover-origin, top left);
+  animation: fs-popover-in 170ms var(--fs-ease-out) forwards;
+}
+
+@keyframes fs-popover-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.framer-saved-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.framer-saved-popover-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fs-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.framer-saved-popover-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--fs-text-muted);
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.framer-saved-popover-close:hover {
+  color: var(--fs-text);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.framer-saved-popover-list {
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.framer-saved-popover-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--fs-text);
+}
+
+.framer-saved-popover-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.framer-saved-popover-item.is-selected {
+  background: rgba(0, 153, 255, 0.14);
+  border-color: rgba(0, 153, 255, 0.4);
+  color: var(--fs-accent);
+  font-weight: 600;
+}
+
+.framer-saved-popover-item-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--fs-accent);
+}
+
+.framer-saved-popover-add {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.framer-saved-popover-input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 9px;
+  border-radius: 6px;
+  border: 1px solid var(--fs-border);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--fs-text);
+  font-family: var(--fs-font);
+  font-size: 12px;
+  outline: none;
+}
+
+.framer-saved-popover-input:focus {
+  border-color: rgba(0, 153, 255, 0.6);
+}
+
+.framer-saved-popover-add-btn {
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: none;
+  background: var(--fs-accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.framer-saved-popover-add-btn:hover {
+  background: var(--fs-accent-hover);
+}
+
+.framer-saved-popover-footer {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.framer-saved-popover-remove-btn {
+  background: transparent;
+  border: none;
+  color: var(--fs-text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+
+.framer-saved-popover-remove-btn:hover {
+  color: var(--fs-danger);
+  background: rgba(255, 45, 85, 0.1);
+}
+
+/* ------------------------------------------------------------
+   Folder Filter Pills in Saved Overlay (Awwwards Style)
+   ------------------------------------------------------------ */
+.framer-saved-folder-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 24px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: none;
+}
+
+.framer-saved-folder-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.framer-saved-folder-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--fs-border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--fs-text-secondary);
+  font-family: var(--fs-font);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.framer-saved-folder-pill:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--fs-border-strong);
+  color: var(--fs-text);
+}
+
+.framer-saved-folder-pill.active {
+  background: rgba(0, 153, 255, 0.16);
+  border-color: rgba(0, 153, 255, 0.45);
+  color: var(--fs-accent);
+  font-weight: 600;
+}
+
+.framer-saved-folder-pill .pill-count {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.framer-saved-folder-pill.active .pill-count {
+  background: rgba(0, 153, 255, 0.25);
+  color: var(--fs-accent);
+}
+
+.framer-saved-folder-add-pill {
+  border-style: dashed;
+  color: var(--fs-text-muted);
+}
+
+.framer-saved-folder-add-pill:hover {
+  color: var(--fs-accent);
+  border-color: rgba(0, 153, 255, 0.4);
+}
+
+/* ------------------------------------------------------------
    Saved view overlay — covers Framer's content area, keeps the
    sidebar visible so navigation always works.
    ------------------------------------------------------------ */
@@ -198,7 +462,7 @@
   font-family: var(--fs-font);
   color: var(--fs-text);
   box-sizing: border-box;
-  animation: fs-overlay-in 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: fs-overlay-in 180ms var(--fs-ease-out);
 }
 
 @keyframes fs-overlay-in {
@@ -232,8 +496,8 @@
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 16px;
-  margin-bottom: 28px;
-  padding-bottom: 24px;
+  margin-bottom: 20px;
+  padding-bottom: 20px;
   border-bottom: 1px solid var(--fs-border);
 }
 
@@ -289,11 +553,6 @@
   line-height: 1;
   cursor: pointer;
   white-space: nowrap;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-}
-
-.framer-saved-btn:active {
-  transform: scale(0.98);
 }
 
 .framer-saved-btn-ghost {
@@ -315,8 +574,8 @@
 }
 
 .framer-saved-btn-primary:hover {
-  background: #0a8ae8;
-  border-color: #0a8ae8;
+  background: var(--fs-accent-hover);
+  border-color: var(--fs-accent-hover);
 }
 
 /* Search field */
@@ -330,7 +589,7 @@
   border-radius: var(--fs-radius);
   border: 1px solid var(--fs-border);
   background: rgba(255, 255, 255, 0.04);
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition: border-color 140ms var(--fs-ease-out), background 140ms var(--fs-ease-out);
 }
 
 .framer-saved-search-field:focus-within {
@@ -435,7 +694,7 @@
   height: 100%;
   object-fit: cover;
   display: block;
-  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.3s var(--fs-ease-out);
 }
 
 .framer-saved-card-thumb-link:hover .framer-saved-card-thumb {
@@ -483,7 +742,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  transition: color 0.15s ease;
+  transition: color 140ms var(--fs-ease-out);
 }
 
 .framer-saved-card-title:hover {
@@ -503,7 +762,7 @@
   color: var(--fs-text-muted);
   cursor: pointer;
   flex-shrink: 0;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background 140ms var(--fs-ease-out), color 140ms var(--fs-ease-out);
 }
 
 .framer-saved-card-remove-btn:hover {
@@ -532,6 +791,21 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.framer-saved-card-folders {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.framer-saved-card-folder-tag {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--fs-text-secondary);
 }
 
 /* Empty state */
@@ -575,7 +849,7 @@
   position: fixed;
   bottom: 24px;
   right: 24px;
-  z-index: 2147483001;
+  z-index: 2147483005;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -591,7 +865,7 @@
   transform: translateY(16px);
   opacity: 0;
   pointer-events: none;
-  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.22s ease;
+  transition: transform 180ms var(--fs-ease-out), opacity 180ms var(--fs-ease-out);
 }
 
 .framer-saved-toast .framer-saved-toast-icon {

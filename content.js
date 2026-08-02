@@ -3,30 +3,43 @@
 
   // ============================================================
   //  Framer Saved — content script
-  //  Robust, Framer-native bookmarking for the Marketplace.
-  //  - No reliance on Framer's hashed CSS-module class names.
-  //  - Saved view renders as an overlay that *always* closes
-  //    (Back button, Esc, sidebar click, hashchange, popstate).
-  //  - Consistent item ids across cards / detail pages / import.
+  //  Robust, Framer-native bookmarking & folders for Marketplace.
+  //  - Pinterest & Awwwards style folders & collections.
+  //  - Origin-aware Save Popover with Emil Kowalski Design Engineering rules:
+  //    * Strong ease-out: cubic-bezier(0.23, 1, 0.32, 1)
+  //    * Fast timing <= 200ms
+  //    * No scale(0) — enters from scale(0.94) + opacity: 0
+  //    * Tactile active press feedback: scale(0.96) on :active
   //  - Automatic background metadata & preview image fetch for imported links.
   //  - All injected strings are HTML-escaped.
   // ============================================================
 
   const STORAGE_KEY = 'framer_saved_items_v1';
+  const FOLDERS_KEY = 'framer_saved_folders_v1';
   const SAVED_HASH = '#saved';
   const OVERLAY_ID = 'framer-saved-overlay';
+  const POPOVER_ID = 'framer-saved-folder-popover';
 
-  const win = window;
-  const doc = document;
-  const hist = history;
-  const ORIGIN = win.location.origin;
+  const win = typeof window !== 'undefined' ? window : {};
+  const doc = typeof document !== 'undefined' ? document : {};
+  const hist = typeof history !== 'undefined' ? history : {};
+  const ORIGIN = win.location ? win.location.origin : 'https://www.framer.com';
+
+  const DEFAULT_FOLDERS = [
+    { id: 'minimalist', name: 'Minimalist' },
+    { id: '3d-motion', name: '3D & Motion' },
+    { id: 'dark-ui', name: 'Dark UI' },
+    { id: 'interactions', name: 'Interactions' }
+  ];
 
   let savedItems = [];
-  let enteredViaPush = false; // did we open the view via history.pushState?
+  let savedFolders = [];
+  let activeFolderId = 'all';
+  let enteredViaPush = false;
   let currentSearchQuery = '';
   let toastTimer = null;
   let injectQueued = false;
-  let lastUrl = win.location.pathname + win.location.search + win.location.hash;
+  let lastUrl = win.location ? (win.location.pathname + win.location.search + win.location.hash) : '';
   const pendingFetches = new Set();
 
   // ------------------------------------------------------------
@@ -48,6 +61,8 @@
     '<svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>';
   const ICON_LOGO =
     '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>';
+  const ICON_CHECK =
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
 
   // ------------------------------------------------------------
   // Small helpers
@@ -66,6 +81,7 @@
   }
 
   function currentUrlKey() {
+    if (!win.location) return '';
     return win.location.pathname + win.location.search + win.location.hash;
   }
 
@@ -78,7 +94,6 @@
     return false;
   }
 
-  /** Leading-edge throttle: reacts fast, doesn't starve during mutation storms. */
   function scheduleInject() {
     if (injectQueued) return;
     injectQueued = true;
@@ -88,7 +103,6 @@
     }, 120);
   }
 
-  /** Canonical item id: lowercase pathname without slashes, e.g. "community/marketplace/components/slug". */
   function normalizeId(href) {
     try {
       const u = new URL(href, ORIGIN);
@@ -98,7 +112,6 @@
     }
   }
 
-  /** Canonical page url for storage. */
   function canonicalUrl(href) {
     try {
       const u = new URL(href, ORIGIN);
@@ -115,11 +128,6 @@
     }
   }
 
-  /**
-   * Normalize items read from storage: migrate legacy underscore ids
-   * (e.g. "community_marketplace_components_foo") to the canonical
-   * path form and drop duplicates.
-   */
   function normalizeStoredItems(raw) {
     const seen = {};
     const result = [];
@@ -129,9 +137,27 @@
       const id = normalizeId(source);
       if (!id || seen[id]) return;
       seen[id] = true;
-      result.push(Object.assign({}, item, { id: id, url: canonicalUrl(source) }));
+      const folders = Array.isArray(item.folders) ? item.folders : [];
+      result.push(Object.assign({}, item, { id: id, url: canonicalUrl(source), folders: folders }));
     });
     return result;
+  }
+
+  function normalizeStoredFolders(raw) {
+    const seen = {};
+    const result = [];
+    const input = Array.isArray(raw) && raw.length > 0 ? raw : DEFAULT_FOLDERS;
+
+    input.forEach(function (f) {
+      if (!f || typeof f !== 'object') return;
+      const name = (f.name || '').trim();
+      if (!name) return;
+      const id = (f.id || name.toLowerCase().replace(/[^a-z0-9]+/g, '-')).replace(/^-+|-+$/g, '');
+      if (!id || seen[id]) return;
+      seen[id] = true;
+      result.push({ id: id, name: name });
+    });
+    return result.length > 0 ? result : DEFAULT_FOLDERS;
   }
 
   function isItemSaved(idOrUrl) {
@@ -149,18 +175,31 @@
     return -1;
   }
 
+  function getItemById(idOrUrl) {
+    const idx = findIndexById(idOrUrl);
+    return idx > -1 ? savedItems[idx] : null;
+  }
+
   function isMarketplacePage() {
+    if (!win.location) return false;
     return /^\/community\/marketplace\//.test(win.location.pathname);
   }
 
   function isDetailPage() {
+    if (!win.location) return false;
     return /^\/community\/marketplace\/(components|templates|vectors|plugins)\/[^/]+\/?$/.test(
       win.location.pathname
     );
   }
 
+  function classNameOf(el) {
+    if (!el) return '';
+    const c = el.className;
+    return typeof c === 'string' ? c : (c && c.baseVal) || '';
+  }
+
   // ------------------------------------------------------------
-  // Background Metadata & Image Fetcher for Imported Links
+  // Background Metadata & Image Fetcher
   // ------------------------------------------------------------
   function fetchMetadataForItem(item) {
     if (!item || !item.url || item.fetchedMeta || pendingFetches.has(item.id)) return;
@@ -174,6 +213,7 @@
       .then(function (res) { return res.text(); })
       .then(function (htmlText) {
         pendingFetches.delete(item.id);
+        if (typeof DOMParser === 'undefined') return;
         const parser = new DOMParser();
         const parsedDoc = parser.parseFromString(htmlText, 'text/html');
 
@@ -203,7 +243,7 @@
           if (overlay) renderSavedGrid();
         }
       })
-      .catch(function (err) {
+      .catch(function () {
         pendingFetches.delete(item.id);
         item.fetchedMeta = true;
       });
@@ -222,17 +262,21 @@
   // ------------------------------------------------------------
   function loadSavedItems(callback) {
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.get([STORAGE_KEY], function (res) {
+      chrome.storage.local.get([STORAGE_KEY, FOLDERS_KEY], function (res) {
         savedItems = normalizeStoredItems(res[STORAGE_KEY]);
+        savedFolders = normalizeStoredFolders(res[FOLDERS_KEY]);
         fetchMissingMetadataForCollection();
         callback && callback();
       });
     } else {
       try {
-        const data = localStorage.getItem(STORAGE_KEY);
+        const data = localStorage && localStorage.getItem(STORAGE_KEY);
+        const fold = localStorage && localStorage.getItem(FOLDERS_KEY);
         savedItems = normalizeStoredItems(data ? JSON.parse(data) : []);
+        savedFolders = normalizeStoredFolders(fold ? JSON.parse(fold) : DEFAULT_FOLDERS);
       } catch (e) {
         savedItems = [];
+        savedFolders = DEFAULT_FOLDERS;
       }
       fetchMissingMetadataForCollection();
       callback && callback();
@@ -241,57 +285,283 @@
 
   function saveItemsToStorage() {
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.set({ [STORAGE_KEY]: savedItems }, function () {
+      chrome.storage.local.set({ [STORAGE_KEY]: savedItems, [FOLDERS_KEY]: savedFolders }, function () {
         updateBadgeCount();
       });
     } else {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(savedItems));
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(savedItems));
+          localStorage.setItem(FOLDERS_KEY, JSON.stringify(savedFolders));
+        }
       } catch (e) { /* ignore */ }
       updateBadgeCount();
     }
   }
 
-  // Keep the page in sync when the popup / another tab changes storage.
   if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
     chrome.storage.onChanged.addListener(function (changes, areaName) {
-      if (areaName === 'local' && changes[STORAGE_KEY]) {
-        savedItems = normalizeStoredItems(changes[STORAGE_KEY].newValue);
+      if (areaName === 'local') {
+        if (changes[STORAGE_KEY]) savedItems = normalizeStoredItems(changes[STORAGE_KEY].newValue);
+        if (changes[FOLDERS_KEY]) savedFolders = normalizeStoredFolders(changes[FOLDERS_KEY].newValue);
         updateBadgeCount();
         fetchMissingMetadataForCollection();
         const overlay = doc.getElementById(OVERLAY_ID);
-        if (overlay) renderSavedGrid();
+        if (overlay) {
+          renderFolderPills();
+          renderSavedGrid();
+        }
       }
     });
+  }
+
+  // ------------------------------------------------------------
+  // Folders API
+  // ------------------------------------------------------------
+  function createFolder(name) {
+    const trimmed = (name || '').trim();
+    if (!trimmed) return null;
+    const id = trimmed.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    if (!id) return null;
+
+    const existing = savedFolders.find(function (f) { return f.id === id; });
+    if (existing) return existing;
+
+    const newFolder = { id: id, name: trimmed };
+    savedFolders.push(newFolder);
+    saveItemsToStorage();
+    const overlay = doc.getElementById ? doc.getElementById(OVERLAY_ID) : null;
+    if (overlay) renderFolderPills();
+    return newFolder;
+  }
+
+  function toggleItemFolder(itemIdOrUrl, folderId) {
+    const idx = findIndexById(itemIdOrUrl);
+    if (idx === -1) return false;
+
+    const item = savedItems[idx];
+    if (!Array.isArray(item.folders)) item.folders = [];
+
+    const fIdx = item.folders.indexOf(folderId);
+    if (fIdx > -1) {
+      item.folders.splice(fIdx, 1);
+    } else {
+      item.folders.push(folderId);
+    }
+
+    saveItemsToStorage();
+    const overlay = doc.getElementById ? doc.getElementById(OVERLAY_ID) : null;
+    if (overlay) renderSavedGrid();
+    return item.folders.includes(folderId);
+  }
+
+  function getItemFolderCount(folderId) {
+    if (folderId === 'all') return savedItems.length;
+    return savedItems.filter(function (item) {
+      return Array.isArray(item.folders) && item.folders.includes(folderId);
+    }).length;
   }
 
   // ------------------------------------------------------------
   // Toast
   // ------------------------------------------------------------
   function showToast(message) {
+    if (!doc.body) return;
     let toast = doc.querySelector('.framer-saved-toast');
     if (!toast) {
       toast = doc.createElement('div');
       toast.className = 'framer-saved-toast';
-      doc.body.appendChild(toast);
+      if (doc.body.appendChild) doc.body.appendChild(toast);
     }
-    toast.innerHTML = '<span class="framer-saved-toast-icon">' + ICON_BOOKMARK + '</span><span>' + esc(message) + '</span>';
-    toast.classList.add('show');
+    if (toast) {
+      toast.innerHTML = '<span class="framer-saved-toast-icon">' + ICON_BOOKMARK + '</span><span>' + esc(message) + '</span>';
+      if (toast.classList) toast.classList.add('show');
+    }
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () {
-      toast.classList.remove('show');
+      if (toast && toast.classList) toast.classList.remove('show');
     }, 2200);
   }
 
   function updateBadgeCount() {
+    if (!doc.querySelectorAll) return;
     doc.querySelectorAll('.framer-saved-badge').forEach(function (badge) {
       badge.textContent = savedItems.length;
     });
   }
 
   // ------------------------------------------------------------
-  // Toggle / metadata
+  // Save & Pinterest-Style Save Popover
   // ------------------------------------------------------------
+  function closeSavePopover() {
+    const existing = doc.getElementById ? doc.getElementById(POPOVER_ID) : null;
+    if (existing && existing.remove) existing.remove();
+  }
+
+  function openSavePopover(meta, triggerBtn) {
+    closeSavePopover();
+
+    const rect = triggerBtn.getBoundingClientRect ? triggerBtn.getBoundingClientRect() : { top: 100, left: 100, bottom: 130, right: 130 };
+    const scrollY = win.scrollY || 0;
+    const scrollX = win.scrollX || 0;
+    const viewportW = win.innerWidth || 1024;
+    const viewportH = win.innerHeight || 768;
+
+    let popoverTop = rect.bottom + scrollY + 8;
+    let popoverLeft = rect.left + scrollX;
+    let originX = 'left';
+    let originY = 'top';
+
+    if (rect.left + 280 > viewportW) {
+      popoverLeft = Math.max(10, rect.right + scrollX - 270);
+      originX = 'right';
+    }
+
+    if (rect.bottom + 260 > viewportH) {
+      popoverTop = Math.max(10, rect.top + scrollY - 250);
+      originY = 'bottom';
+    }
+
+    const isSaved = isItemSaved(meta.id || meta.url);
+    if (!isSaved) {
+      const newItem = {
+        id: normalizeId(meta.url),
+        url: canonicalUrl(meta.url),
+        title: meta.title || 'Framer Component',
+        subtitle: meta.subtitle || '',
+        price: meta.price || 'Free',
+        creator: meta.creator || 'Framer Creator',
+        thumbnail: meta.thumbnail || '',
+        folders: [],
+        savedAt: new Date().toISOString()
+      };
+      savedItems.unshift(newItem);
+      saveItemsToStorage();
+      fetchMetadataForItem(newItem);
+    }
+
+    const item = getItemById(meta.id || meta.url) || meta;
+    const itemFolders = Array.isArray(item.folders) ? item.folders : [];
+
+    const popover = doc.createElement('div');
+    popover.id = POPOVER_ID;
+    popover.className = 'framer-saved-popover';
+    popover.style.top = popoverTop + 'px';
+    popover.style.left = popoverLeft + 'px';
+    if (popover.style.setProperty) {
+      popover.style.setProperty('--popover-origin', originY + ' ' + originX);
+    }
+
+    function renderPopoverContent() {
+      let listHtml = '';
+      savedFolders.forEach(function (f) {
+        const selected = itemFolders.includes(f.id);
+        listHtml +=
+          '<div class="framer-saved-popover-item' + (selected ? ' is-selected' : '') + '" data-folder-id="' + esc(f.id) + '">' +
+          '  <span>' + esc(f.name) + '</span>' +
+          '  <span class="framer-saved-popover-item-check">' + (selected ? ICON_CHECK : '') + '</span>' +
+          '</div>';
+      });
+
+      popover.innerHTML =
+        '<div class="framer-saved-popover-header">' +
+        '  <span class="framer-saved-popover-title">Save to Collection</span>' +
+        '  <button type="button" class="framer-saved-popover-close">' + ICON_TRASH + '</button>' +
+        '</div>' +
+        '<div class="framer-saved-popover-list">' + listHtml + '</div>' +
+        '<div class="framer-saved-popover-add">' +
+        '  <input type="text" class="framer-saved-popover-input" placeholder="+ Create folder…" autocomplete="off" />' +
+        '  <button type="button" class="framer-saved-popover-add-btn">Add</button>' +
+        '</div>' +
+        '<div class="framer-saved-popover-footer">' +
+        '  <button type="button" class="framer-saved-popover-remove-btn">Remove from Saved</button>' +
+        '</div>';
+
+      popover.querySelectorAll('.framer-saved-popover-item').forEach(function (el) {
+        el.addEventListener('click', function (e) {
+          e.stopPropagation();
+          const fId = el.getAttribute('data-folder-id');
+          const isNowInFolder = toggleItemFolder(item.id, fId);
+          renderPopoverContent();
+          showToast(isNowInFolder ? 'Added to folder' : 'Removed from folder');
+          updateAllBtnStates(item.id);
+        });
+      });
+
+      const closeBtn = popover.querySelector('.framer-saved-popover-close');
+      if (closeBtn) {
+        closeBtn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          closeSavePopover();
+        });
+      }
+
+      const addInput = popover.querySelector('.framer-saved-popover-input');
+      const addBtn = popover.querySelector('.framer-saved-popover-add-btn');
+
+      function handleAddFolder() {
+        if (!addInput) return;
+        const val = addInput.value;
+        const created = createFolder(val);
+        if (created) {
+          toggleItemFolder(item.id, created.id);
+          addInput.value = '';
+          renderPopoverContent();
+          showToast('Created folder "' + created.name + '"');
+        }
+      }
+
+      if (addBtn) {
+        addBtn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          handleAddFolder();
+        });
+      }
+
+      if (addInput) {
+        addInput.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            e.stopPropagation();
+            handleAddFolder();
+          }
+        });
+      }
+
+      const removeBtn = popover.querySelector('.framer-saved-popover-remove-btn');
+      if (removeBtn) {
+        removeBtn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          const idx = findIndexById(item.id);
+          if (idx > -1) {
+            savedItems.splice(idx, 1);
+            saveItemsToStorage();
+            showToast('Removed from Saved');
+            updateAllBtnStates(item.id);
+            const overlay = doc.getElementById(OVERLAY_ID);
+            if (overlay) renderSavedGrid();
+          }
+          closeSavePopover();
+        });
+      }
+    }
+
+    renderPopoverContent();
+    if (doc.body) doc.body.appendChild(popover);
+    showToast('Saved to Favorites!');
+    updateAllBtnStates(item.id);
+
+    setTimeout(function () {
+      function onOutsideClick(e) {
+        if (!popover.contains(e.target) && e.target !== triggerBtn && !triggerBtn.contains(e.target)) {
+          closeSavePopover();
+          doc.removeEventListener('click', onOutsideClick, true);
+        }
+      }
+      if (doc.addEventListener) doc.addEventListener('click', onOutsideClick, true);
+    }, 50);
+  }
+
   function toggleSaveItem(meta) {
     const idx = findIndexById(meta.id || meta.url);
     if (idx > -1) {
@@ -308,6 +578,7 @@
         price: meta.price || 'Free',
         creator: meta.creator || 'Framer Creator',
         thumbnail: meta.thumbnail || '',
+        folders: [],
         savedAt: new Date().toISOString()
       };
       savedItems.unshift(newItem);
@@ -316,6 +587,18 @@
       fetchMetadataForItem(newItem);
       return true;
     }
+  }
+
+  function updateAllBtnStates(itemId) {
+    const saved = isItemSaved(itemId);
+
+    doc.querySelectorAll('.framer-saved-detail-btn').forEach(function (btn) {
+      updateDetailBtnContent(btn, saved);
+    });
+
+    doc.querySelectorAll('.framer-saved-card-inline-btn').forEach(function (btn) {
+      setCardBtnState(btn, saved);
+    });
   }
 
   function parseTitleAndSubtitle(rawTitle) {
@@ -340,11 +623,10 @@
     if (h1) {
       rawTitle = (h1.innerText || h1.textContent || '').trim();
     } else {
-      rawTitle = doc.title.replace(/—\s*Framer\s*(Marketplace)?\s*$/i, '').trim();
+      rawTitle = doc.title ? doc.title.replace(/—\s*Framer\s*(Marketplace)?\s*$/i, '').trim() : '';
     }
     const parsed = parseTitleAndSubtitle(rawTitle);
 
-    // Find the primary CTA button ("Buy for $8", "Copy Component", "Use for Free"…)
     let price = 'Free';
     let ctaBtn = findCtaButton();
     if (ctaBtn) {
@@ -386,7 +668,7 @@
   }
 
   // ------------------------------------------------------------
-  // CTA button discovery (text based, no fragile class names)
+  // CTA button discovery
   // ------------------------------------------------------------
   const CTA_PATTERNS = [
     /^Copy (Component|Template)$/i,
@@ -397,6 +679,7 @@
   ];
 
   function findCtaButton() {
+    if (!doc.querySelectorAll) return null;
     const candidates = doc.querySelectorAll(
       'button, a[href], [role="button"], [class*="button"], [class*="Button"]'
     );
@@ -415,6 +698,7 @@
   // 1) Sidebar "Saved" tab
   // ------------------------------------------------------------
   function findSidebarContext() {
+    if (!doc.querySelectorAll) return null;
     const links = doc.querySelectorAll('nav a[href], aside a[href], [class*="sidebar"] a[href], a[href*="/community/"]');
     for (let i = 0; i < links.length; i++) {
       const link = links[i];
@@ -438,7 +722,7 @@
   }
 
   function injectSidebarTab() {
-    if (!win.location.pathname.includes('/community/')) return;
+    if (!win.location || !win.location.pathname || !win.location.pathname.includes('/community/')) return;
     if (doc.querySelector('.framer-saved-nav-item')) return;
 
     const ctx = findSidebarContext();
@@ -473,7 +757,7 @@
   }
 
   // ------------------------------------------------------------
-  // 2) Detail page "Save" button — styled like Framer's actions
+  // 2) Detail page "Save" button
   // ------------------------------------------------------------
   function injectDetailBookmarkButton() {
     if (!isDetailPage()) return;
@@ -496,8 +780,7 @@
     btn.addEventListener('click', function (e) {
       e.preventDefault();
       e.stopPropagation();
-      const nowSaved = toggleSaveItem(getCurrentPageMetadata());
-      updateDetailBtnContent(btn, nowSaved);
+      openSavePopover(getCurrentPageMetadata(), btn);
     });
 
     ctaBtn.parentElement.insertBefore(btn, ctaBtn);
@@ -507,7 +790,7 @@
     btn.className = 'framer-saved-detail-btn' + (saved ? ' is-saved' : '');
     btn.setAttribute('aria-label', saved ? 'Remove from Saved' : 'Save component');
     btn.setAttribute('aria-pressed', saved ? 'true' : 'false');
-    btn.title = saved ? 'Remove from Saved' : 'Save component';
+    btn.title = saved ? 'Manage folders or remove' : 'Save component';
     btn.innerHTML =
       '<span class="framer-saved-detail-btn-icon">' + (saved ? ICON_BOOKMARK_FILLED : ICON_BOOKMARK) + '</span>' +
       '<span class="framer-saved-detail-btn-label">' + (saved ? 'Saved' : 'Save') + '</span>';
@@ -516,16 +799,6 @@
   // ------------------------------------------------------------
   // 3) Marketplace grid card bookmark buttons
   // ------------------------------------------------------------
-  function classNameOf(el) {
-    if (!el) return '';
-    const c = el.className;
-    return typeof c === 'string' ? c : (c && c.baseVal) || '';
-  }
-
-  /**
-   * Climb from the card's <a> to the true top-level tile container.
-   * Skips inner sub-containers like titlerow, info, stats, meta, footer.
-   */
   function findTile(link) {
     let el = link;
     let topTile = null;
@@ -539,7 +812,6 @@
       const cls = classNameOf(el).toLowerCase();
       const tag = (el.tagName || '').toLowerCase();
 
-      // Skip inner sub-containers like titleRow, info, stats, subline, footer, breadcrumb
       if (/titlerow|info|stats|subline|footer|meta|author|creator|byline|breadcrumb/.test(cls)) {
         el = el.parentElement;
         continue;
@@ -564,24 +836,22 @@
 
   function setCardBtnState(btn, saved) {
     btn.className = 'framer-saved-card-inline-btn' + (saved ? ' is-saved' : '');
-    btn.setAttribute('aria-label', saved ? 'Remove from Saved' : 'Save component');
-    btn.title = saved ? 'Remove from Saved' : 'Save component';
+    btn.setAttribute('aria-label', saved ? 'Manage saved component' : 'Save component');
+    btn.title = saved ? 'Manage folders or remove' : 'Save component';
     btn.innerHTML = saved ? ICON_BOOKMARK_FILLED : ICON_BOOKMARK;
   }
 
   function injectCardBookmarkButtons() {
-    // DO NOT inject small tile buttons on detail pages or non-marketplace pages.
     if (!isMarketplacePage() || isDetailPage()) return;
+    if (!doc.querySelectorAll) return;
 
     const links = doc.querySelectorAll('a[href*="/marketplace/"]');
     for (let i = 0; i < links.length; i++) {
       const link = links[i];
       const href = link.getAttribute('href') || '';
 
-      // Skip navigation bars and breadcrumb items strictly (do not check generic class names like nav/toolbar)
       if (link.closest('nav, [class*="breadcrumb"], [class*="breadCrumb"], [class*="Breadcrumb"]')) continue;
 
-      // Detail-page link pattern only, excluding category/tag hub pages
       if (!/\/marketplace\/(components|templates|vectors|plugins)\/[^/?#]+\/?$/.test(href)) continue;
       if (/\/(categories|tags|author|creator|collections)\/?$/i.test(href)) continue;
 
@@ -616,7 +886,7 @@
           if (txt && txt.length < 80) creator = txt;
         }
 
-        const nowSaved = toggleSaveItem({
+        const meta = {
           id: cardId,
           url: link.href,
           title: parsed.title || 'Framer Component',
@@ -624,9 +894,9 @@
           price: priceEl ? (priceEl.textContent || '').trim() : 'Free',
           creator: creator,
           thumbnail: img ? img.src : ''
-        });
+        };
 
-        setCardBtnState(actionBtn, nowSaved);
+        openSavePopover(meta, actionBtn);
       });
 
       ensurePositioned(tile);
@@ -635,9 +905,10 @@
   }
 
   // ------------------------------------------------------------
-  // 4) Saved view — a Framer-native overlay over the content area
+  // 4) Saved view overlay with Pinterest / Awwwards Folder Bar
   // ------------------------------------------------------------
   function isSavedRoute() {
+    if (!win.location) return false;
     return win.location.hash === SAVED_HASH;
   }
 
@@ -647,7 +918,7 @@
       try {
         hist.pushState(null, '', SAVED_HASH);
       } catch (e) {
-        win.location.hash = SAVED_HASH;
+        if (win.location) win.location.hash = SAVED_HASH;
       }
     }
     syncSavedViewState();
@@ -663,7 +934,7 @@
         try {
           hist.replaceState(null, '', target);
         } catch (e) {
-          win.location.hash = '';
+          if (win.location) win.location.hash = '';
         }
       }
     }
@@ -677,8 +948,8 @@
       if (r.width > 120 && r.left >= 0) {
         return {
           top: Math.max(0, r.top),
-          right: Math.max(0, win.innerWidth - r.right),
-          bottom: Math.max(0, win.innerHeight - r.bottom),
+          right: Math.max(0, (win.innerWidth || 1024) - r.right),
+          bottom: Math.max(0, (win.innerHeight || 768) - r.bottom),
           left: Math.max(0, r.left)
         };
       }
@@ -707,8 +978,8 @@
       '<div class="framer-saved-overlay-inner">' +
       '  <header class="framer-saved-view-header">' +
       '    <div class="framer-saved-title-group">' +
-      '      <h1><span class="framer-saved-title-icon">' + ICON_LOGO + '</span>Saved Components</h1>' +
-      '      <p>Your personal collection of bookmarked Framer components, templates, and UI kits.</p>' +
+      '      <h1><span class="framer-saved-title-icon">' + ICON_LOGO + '</span>Saved Collections</h1>' +
+      '      <p>Organize your saved Framer components by style, category, or project.</p>' +
       '    </div>' +
       '    <div class="framer-saved-controls">' +
       '      <button type="button" class="framer-saved-btn framer-saved-btn-ghost framer-saved-back-btn" title="Back to the Marketplace (Esc)">' +
@@ -730,43 +1001,109 @@
       '      </div>' +
       '    </div>' +
       '  </header>' +
+      '  <div id="framer-saved-folder-bar" class="framer-saved-folder-bar"></div>' +
       '  <div id="framer-saved-grid" class="framer-saved-grid"></div>' +
       '</div>';
 
-    doc.body.appendChild(overlay);
+    if (doc.body) doc.body.appendChild(overlay);
 
-    overlay.querySelector('.framer-saved-back-btn').addEventListener('click', function () {
-      closeSavedView();
-    });
+    const backBtn = overlay.querySelector('.framer-saved-back-btn');
+    if (backBtn) {
+      backBtn.addEventListener('click', function () {
+        closeSavedView();
+      });
+    }
 
     const importPanel = overlay.querySelector('.framer-saved-import-panel');
     const importInput = overlay.querySelector('#framer-saved-import-input');
-    overlay.querySelector('.framer-saved-import-btn').addEventListener('click', function () {
-      importPanel.hidden = !importPanel.hidden;
-      if (!importPanel.hidden) importInput.focus();
-    });
-    overlay.querySelector('.framer-saved-import-cancel').addEventListener('click', function () {
-      importPanel.hidden = true;
-    });
-    overlay.querySelector('.framer-saved-import-go').addEventListener('click', function () {
-      const count = importLinks(importInput.value);
-      importInput.value = '';
-      importPanel.hidden = true;
-      renderSavedGrid();
-      if (count === 0) showToast('No new valid Framer links found');
-    });
+    const importBtn = overlay.querySelector('.framer-saved-import-btn');
+    if (importBtn) {
+      importBtn.addEventListener('click', function () {
+        importPanel.hidden = !importPanel.hidden;
+        if (!importPanel.hidden && importInput) importInput.focus();
+      });
+    }
+    const importCancel = overlay.querySelector('.framer-saved-import-cancel');
+    if (importCancel) {
+      importCancel.addEventListener('click', function () {
+        importPanel.hidden = true;
+      });
+    }
+    const importGo = overlay.querySelector('.framer-saved-import-go');
+    if (importGo) {
+      importGo.addEventListener('click', function () {
+        const count = importLinks(importInput ? importInput.value : '');
+        if (importInput) importInput.value = '';
+        importPanel.hidden = true;
+        renderFolderPills();
+        renderSavedGrid();
+        if (count === 0) showToast('No new valid Framer links found');
+      });
+    }
 
-    overlay.querySelector('#framer-saved-search').addEventListener('input', function (e) {
-      currentSearchQuery = e.target.value;
-      renderSavedGrid();
-    });
+    const searchInput = overlay.querySelector('#framer-saved-search');
+    if (searchInput) {
+      searchInput.addEventListener('input', function (e) {
+        currentSearchQuery = e.target.value;
+        renderSavedGrid();
+      });
+    }
 
+    renderFolderPills();
     renderSavedGrid();
 
     setTimeout(function () {
-      const input = overlay.querySelector('#framer-saved-search');
-      if (input && savedItems.length > 0 && win.innerWidth > 640) input.focus();
+      if (searchInput && savedItems.length > 0 && (win.innerWidth || 1024) > 640) searchInput.focus();
     }, 50);
+  }
+
+  function renderFolderPills() {
+    const bar = doc.getElementById('framer-saved-folder-bar');
+    if (!bar) return;
+
+    let html =
+      '<button type="button" class="framer-saved-folder-pill' + (activeFolderId === 'all' ? ' active' : '') + '" data-folder-id="all">' +
+      '  <span>All Items</span>' +
+      '  <span class="pill-count">' + getItemFolderCount('all') + '</span>' +
+      '</button>';
+
+    savedFolders.forEach(function (f) {
+      const count = getItemFolderCount(f.id);
+      html +=
+        '<button type="button" class="framer-saved-folder-pill' + (activeFolderId === f.id ? ' active' : '') + '" data-folder-id="' + esc(f.id) + '">' +
+        '  <span>' + esc(f.name) + '</span>' +
+        '  <span class="pill-count">' + count + '</span>' +
+        '</button>';
+    });
+
+    html +=
+      '<button type="button" class="framer-saved-folder-pill framer-saved-folder-add-pill" title="Create new folder">' +
+      '  ' + ICON_PLUS + '<span>New Folder</span>' +
+      '</button>';
+
+    bar.innerHTML = html;
+
+    bar.querySelectorAll('.framer-saved-folder-pill[data-folder-id]').forEach(function (pill) {
+      pill.addEventListener('click', function () {
+        activeFolderId = pill.getAttribute('data-folder-id');
+        renderFolderPills();
+        renderSavedGrid();
+      });
+    });
+
+    const addPill = bar.querySelector('.framer-saved-folder-add-pill');
+    if (addPill) {
+      addPill.addEventListener('click', function () {
+        const name = typeof win.prompt === 'function' ? win.prompt('Enter new folder name (e.g. Minimalist, Dark UI):') : '';
+        const created = createFolder(name);
+        if (created) {
+          activeFolderId = created.id;
+          renderFolderPills();
+          renderSavedGrid();
+          showToast('Folder "' + created.name + '" created');
+        }
+      });
+    }
   }
 
   function renderSavedGrid() {
@@ -775,6 +1112,9 @@
 
     const q = (currentSearchQuery || '').toLowerCase().trim();
     const filtered = savedItems.filter(function (item) {
+      if (activeFolderId !== 'all') {
+        if (!Array.isArray(item.folders) || !item.folders.includes(activeFolderId)) return false;
+      }
       if (!q) return true;
       return (
         (item.title || '').toLowerCase().includes(q) ||
@@ -784,13 +1124,16 @@
     });
 
     if (filtered.length === 0) {
+      const activeFolderObj = savedFolders.find(function (f) { return f.id === activeFolderId; });
+      const folderName = activeFolderObj ? activeFolderObj.name : 'this collection';
+
       grid.innerHTML =
         '<div class="framer-saved-empty-state">' +
         '  <div class="framer-saved-empty-icon">' + ICON_EMPTY + '</div>' +
-        '  <h3>' + esc(savedItems.length === 0 ? 'No saved components yet' : 'Nothing matches your search') + '</h3>' +
+        '  <h3>' + esc(savedItems.length === 0 ? 'No saved components yet' : 'No components in ' + folderName) + '</h3>' +
         '  <p>' + esc(savedItems.length === 0
           ? 'Explore the Framer Marketplace, or click Import Links to add items.'
-          : 'Try a different search term.') + '</p>' +
+          : 'Save items to "' + folderName + '" from any card or detail page.') + '</p>' +
         '</div>';
       return;
     }
@@ -799,6 +1142,19 @@
     filtered.forEach(function (item) {
       const parsed = parseTitleAndSubtitle(item.title);
       const title = parsed.title || 'Framer Component';
+
+      let folderTagsHtml = '';
+      if (Array.isArray(item.folders) && item.folders.length > 0) {
+        folderTagsHtml = '<div class="framer-saved-card-folders">';
+        item.folders.forEach(function (fId) {
+          const fObj = savedFolders.find(function (f) { return f.id === fId; });
+          if (fObj) {
+            folderTagsHtml += '<span class="framer-saved-card-folder-tag">' + esc(fObj.name) + '</span>';
+          }
+        });
+        folderTagsHtml += '</div>';
+      }
+
       html +=
         '<div class="framer-saved-card" data-id="' + esc(item.id) + '">' +
         '  <a class="framer-saved-card-thumb-link" href="' + esc(item.url) + '" title="' + esc(title) + '">' +
@@ -816,6 +1172,7 @@
         '      <span class="framer-saved-card-price">' + esc(item.price || 'Free') + '</span>' +
         '      <span class="framer-saved-card-creator">' + esc(item.creator || '') + '</span>' +
         '    </div>' +
+        folderTagsHtml +
         '  </div>' +
         '</div>';
     });
@@ -840,6 +1197,7 @@
         if (idx > -1) {
           savedItems.splice(idx, 1);
           saveItemsToStorage();
+          renderFolderPills();
           renderSavedGrid();
           showToast('Removed from Saved');
         }
@@ -848,7 +1206,7 @@
   }
 
   function syncSavedViewState() {
-    const overlay = doc.getElementById(OVERLAY_ID);
+    const overlay = doc.getElementById ? doc.getElementById(OVERLAY_ID) : null;
     const active = isSavedRoute();
 
     if (active) {
@@ -856,11 +1214,14 @@
     } else if (overlay) {
       overlay.remove();
       currentSearchQuery = '';
+      closeSavePopover();
     }
 
-    doc.querySelectorAll('.framer-saved-nav-item').forEach(function (el) {
-      el.classList.toggle('active', active);
-    });
+    if (doc.querySelectorAll) {
+      doc.querySelectorAll('.framer-saved-nav-item').forEach(function (el) {
+        el.classList.toggle('active', active);
+      });
+    }
   }
 
   // ------------------------------------------------------------
@@ -891,6 +1252,7 @@
         price: 'Free',
         creator: 'Imported',
         thumbnail: '',
+        folders: [],
         fetchedMeta: false,
         savedAt: new Date().toISOString()
       };
@@ -913,15 +1275,18 @@
   // Cleanup stale UI on page change
   // ------------------------------------------------------------
   function clearStaleInjectedUi() {
+    if (!doc.querySelectorAll) return;
     doc.querySelectorAll('.framer-saved-detail-btn, .framer-saved-card-inline-btn').forEach(function (el) {
       el.remove();
     });
   }
 
   // ------------------------------------------------------------
-  // History / routing hooks — make sure the view always closes
+  // History / routing hooks
   // ------------------------------------------------------------
   function patchHistoryAPI() {
+    if (!hist.pushState) return;
+
     const originalPushState = hist.pushState;
     const originalReplaceState = hist.replaceState;
 
@@ -943,49 +1308,56 @@
       return ret;
     };
 
-    win.addEventListener('popstate', function () {
-      syncSavedViewState();
-      injectAll();
-    });
-    win.addEventListener('hashchange', function () {
-      syncSavedViewState();
-      injectAll();
-    });
+    if (win.addEventListener) {
+      win.addEventListener('popstate', function () {
+        syncSavedViewState();
+        injectAll();
+      });
+      win.addEventListener('hashchange', function () {
+        syncSavedViewState();
+        injectAll();
+      });
+    }
 
-    doc.addEventListener(
-      'click',
-      function (e) {
-        const link = e.target && e.target.closest ? e.target.closest('a') : null;
-        if (!link) return;
-        const href = link.getAttribute('href') || '';
-        if (href.startsWith('#') || link.classList.contains('framer-saved-nav-item')) return;
+    if (doc.addEventListener) {
+      doc.addEventListener(
+        'click',
+        function (e) {
+          const link = e.target && e.target.closest ? e.target.closest('a') : null;
+          if (!link) return;
+          const href = link.getAttribute('href') || '';
+          if (href.startsWith('#') || link.classList.contains('framer-saved-nav-item')) return;
 
-        const isNavLink = href.startsWith('/') || href.startsWith(ORIGIN) || href.startsWith('http');
-        if (!isNavLink) return;
+          const isNavLink = href.startsWith('/') || href.startsWith(ORIGIN) || href.startsWith('http');
+          if (!isNavLink) return;
 
-        setTimeout(function () {
-          if (!isSavedRoute()) return;
-          let targetPath = null;
-          try {
-            targetPath = new URL(link.href, ORIGIN).pathname;
-          } catch (err) { /* ignore */ }
-          if (targetPath === win.location.pathname) {
+          setTimeout(function () {
+            if (!isSavedRoute()) return;
+            let targetPath = null;
             try {
-              hist.replaceState(null, '', win.location.pathname + win.location.search);
+              targetPath = new URL(link.href, ORIGIN).pathname;
             } catch (err) { /* ignore */ }
-          }
-          syncSavedViewState();
-        }, 80);
-      },
-      true
-    );
+            if (targetPath === win.location.pathname) {
+              try {
+                hist.replaceState(null, '', win.location.pathname + win.location.search);
+              } catch (err) { /* ignore */ }
+            }
+            syncSavedViewState();
+          }, 80);
+        },
+        true
+      );
 
-    doc.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && isSavedRoute()) {
-        e.preventDefault();
-        closeSavedView();
-      }
-    });
+      doc.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') {
+          closeSavePopover();
+          if (isSavedRoute()) {
+            e.preventDefault();
+            closeSavedView();
+          }
+        }
+      });
+    }
   }
 
   // ------------------------------------------------------------
@@ -1010,13 +1382,15 @@
   function initApp() {
     patchHistoryAPI();
 
-    const observer = new MutationObserver(function () {
-      try {
-        scheduleInject();
-        syncSavedViewState();
-      } catch (err) { warn(err); }
-    });
-    observer.observe(doc.body, { childList: true, subtree: true });
+    if (typeof MutationObserver !== 'undefined' && doc.body) {
+      const observer = new MutationObserver(function () {
+        try {
+          scheduleInject();
+          syncSavedViewState();
+        } catch (err) { warn(err); }
+      });
+      observer.observe(doc.body, { childList: true, subtree: true });
+    }
 
     setInterval(function () {
       if (!doc.hidden) {
@@ -1025,30 +1399,35 @@
       }
     }, 500);
 
-    win.addEventListener('scroll', function () {
-      if (!doc.hidden) injectCardBookmarkButtons();
-    }, { passive: true });
+    if (win.addEventListener) {
+      win.addEventListener('scroll', function () {
+        if (!doc.hidden) injectCardBookmarkButtons();
+      }, { passive: true });
+    }
 
     injectAll();
     syncSavedViewState();
   }
 
-  // ------------------------------------------------------------
-  // Boot
-  // ------------------------------------------------------------
-  loadSavedItems(initApp);
+  // Boot only when in full browser environment
+  if (typeof window !== 'undefined' && typeof document !== 'undefined' && typeof MutationObserver !== 'undefined') {
+    loadSavedItems(initApp);
+  }
 
-  // Exposed for unit tests only — no-op inside a browser content script.
+  // Exposed for unit tests only
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       esc: esc,
       normalizeId: normalizeId,
       canonicalUrl: canonicalUrl,
       normalizeStoredItems: normalizeStoredItems,
+      normalizeStoredFolders: normalizeStoredFolders,
       parseTitleAndSubtitle: parseTitleAndSubtitle,
       isItemSaved: isItemSaved,
       findIndexById: findIndexById,
       toggleSaveItem: toggleSaveItem,
+      createFolder: createFolder,
+      toggleItemFolder: toggleItemFolder,
       findTile: findTile,
       findCtaButton: findCtaButton
     };
