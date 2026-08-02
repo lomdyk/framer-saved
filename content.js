@@ -108,7 +108,7 @@
       const u = new URL(href, ORIGIN);
       return u.pathname.split('/').filter(Boolean).map(decodeURIComponent).join('/').toLowerCase();
     } catch (e) {
-      return String(href || '');
+      return String(href || '').toLowerCase().replace(/^\/+|\/+$/g, '');
     }
   }
 
@@ -163,14 +163,14 @@
   function isItemSaved(idOrUrl) {
     const needle = normalizeId(idOrUrl);
     return savedItems.some(function (item) {
-      return item.id === needle || item.url === idOrUrl;
+      return item.id === needle || item.url === idOrUrl || normalizeId(item.url) === needle;
     });
   }
 
   function findIndexById(idOrUrl) {
     const needle = normalizeId(idOrUrl);
     for (let i = 0; i < savedItems.length; i++) {
-      if (savedItems[i].id === needle || savedItems[i].url === idOrUrl) return i;
+      if (savedItems[i].id === needle || savedItems[i].url === idOrUrl || normalizeId(savedItems[i].url) === needle) return i;
     }
     return -1;
   }
@@ -422,11 +422,14 @@
       originY = 'bottom';
     }
 
-    const isSaved = isItemSaved(meta.id || meta.url);
+    const itemNormId = normalizeId(meta.url || meta.id);
+    const canonicalKey = canonicalUrl(meta.url || meta.id);
+
+    const isSaved = isItemSaved(itemNormId);
     if (!isSaved) {
       const newItem = {
-        id: normalizeId(meta.url),
-        url: canonicalUrl(meta.url),
+        id: itemNormId,
+        url: canonicalKey,
         title: meta.title || 'Framer Component',
         subtitle: meta.subtitle || '',
         price: meta.price || 'Free',
@@ -440,9 +443,6 @@
       fetchMetadataForItem(newItem);
     }
 
-    const item = getItemById(meta.id || meta.url) || meta;
-    const itemFolders = Array.isArray(item.folders) ? item.folders : [];
-
     const popover = doc.createElement('div');
     popover.id = POPOVER_ID;
     popover.className = 'framer-saved-popover';
@@ -453,9 +453,12 @@
     }
 
     function renderPopoverContent() {
+      const currentItem = getItemById(itemNormId) || getItemById(canonicalKey) || meta;
+      const currentFolders = currentItem && Array.isArray(currentItem.folders) ? currentItem.folders : [];
+
       let listHtml = '';
       savedFolders.forEach(function (f) {
-        const selected = itemFolders.includes(f.id);
+        const selected = currentFolders.includes(f.id);
         listHtml +=
           '<div class="framer-saved-popover-item' + (selected ? ' is-selected' : '') + '" data-folder-id="' + esc(f.id) + '">' +
           '  <span>' + esc(f.name) + '</span>' +
@@ -481,10 +484,10 @@
         el.addEventListener('click', function (e) {
           e.stopPropagation();
           const fId = el.getAttribute('data-folder-id');
-          const isNowInFolder = toggleItemFolder(item.id, fId);
+          const isNowInFolder = toggleItemFolder(itemNormId, fId);
           renderPopoverContent();
           showToast(isNowInFolder ? 'Added to folder' : 'Removed from folder');
-          updateAllBtnStates(item.id);
+          updateAllBtnStates(itemNormId);
         });
       });
 
@@ -504,7 +507,7 @@
         const val = addInput.value;
         const created = createFolder(val);
         if (created) {
-          toggleItemFolder(item.id, created.id);
+          toggleItemFolder(itemNormId, created.id);
           addInput.value = '';
           renderPopoverContent();
           showToast('Created folder "' + created.name + '"');
@@ -532,12 +535,12 @@
       if (removeBtn) {
         removeBtn.addEventListener('click', function (e) {
           e.stopPropagation();
-          const idx = findIndexById(item.id);
+          const idx = findIndexById(itemNormId);
           if (idx > -1) {
             savedItems.splice(idx, 1);
             saveItemsToStorage();
             showToast('Removed from Saved');
-            updateAllBtnStates(item.id);
+            updateAllBtnStates(itemNormId);
             const overlay = doc.getElementById(OVERLAY_ID);
             if (overlay) renderSavedGrid();
           }
@@ -549,7 +552,7 @@
     renderPopoverContent();
     if (doc.body) doc.body.appendChild(popover);
     showToast('Saved to Favorites!');
-    updateAllBtnStates(item.id);
+    updateAllBtnStates(itemNormId);
 
     setTimeout(function () {
       function onOutsideClick(e) {
