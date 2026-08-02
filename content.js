@@ -522,20 +522,39 @@
     return typeof c === 'string' ? c : (c && c.baseVal) || '';
   }
 
+  /**
+   * Climb from the card's <a> to the true top-level tile container.
+   * Skips inner sub-containers like titlerow, info, stats, meta, footer.
+   */
   function findTile(link) {
     let el = link;
-    for (let i = 0; i < 7 && el; i++) {
+    let topTile = null;
+
+    for (let i = 0; i < 8 && el && el.tagName !== 'BODY'; i++) {
       if (el.tagName === 'A') {
         el = el.parentElement;
         continue;
       }
+
       const cls = classNameOf(el).toLowerCase();
       const tag = (el.tagName || '').toLowerCase();
-      if (/tile|card|post|item/.test(cls) || tag === 'article' || tag === 'li') return el;
+
+      // Skip inner sub-containers like titleRow, info, stats, subline, footer
+      if (/titlerow|info|stats|subline|footer|meta|author|creator|byline/.test(cls)) {
+        el = el.parentElement;
+        continue;
+      }
+
+      if (/tile|card|post|item/.test(cls) || tag === 'article' || tag === 'li') {
+        topTile = el;
+        // If class contains "tile", we have reached the true top-level card!
+        if (/tile/i.test(cls)) break;
+      }
+
       el = el.parentElement;
     }
-    const parent = link.parentElement;
-    return parent && parent.tagName !== 'BODY' ? parent : null;
+
+    return topTile || (link.closest('article, li') || link.parentElement);
   }
 
   function ensurePositioned(el) {
