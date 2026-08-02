@@ -627,6 +627,7 @@
       saveItemsToStorage();
       fetchMetadataForItem(newItem);
       showToast('Saved to Favorites!', 'success');
+      triggerSparkleBurst(triggerBtn);
     }
 
     const popover = doc.createElement('div');
@@ -673,9 +674,9 @@
       popover.querySelectorAll('.framer-saved-popover-item').forEach(function (el) {
         el.addEventListener('click', function (e) {
           e.stopPropagation();
-          if (e.target.closest('.framer-saved-popover-folder-del')) return;
           const fId = el.getAttribute('data-folder-id');
           const isNowInFolder = toggleItemFolder(itemNormId, fId);
+          if (isNowInFolder) triggerSparkleBurst(el);
           renderPopoverContent();
           renderFolderPills();
           showToast(isNowInFolder ? 'Added to folder' : 'Removed from folder');
@@ -801,16 +802,64 @@
     }
   }
 
-  function updateAllBtnStates(itemId) {
-    const saved = isItemSaved(itemId);
+  function triggerSparkleBurst(triggerEl) {
+    if (!triggerEl || !triggerEl.getBoundingClientRect) return;
+    const rect = triggerEl.getBoundingClientRect();
+    const scrollX = win.scrollX || 0;
+    const scrollY = win.scrollY || 0;
+    const centerX = rect.left + rect.width / 2 + scrollX;
+    const centerY = rect.top + rect.height / 2 + scrollY;
+
+    const colors = ['#0099ff', '#30d158', '#ff2d55', '#ffd60a', '#bf5af2'];
+    const container = doc.createElement('div');
+    container.className = 'framer-saved-sparkle-container';
+    container.style.top = centerY + 'px';
+    container.style.left = centerX + 'px';
+
+    for (let i = 0; i < 8; i++) {
+      const p = doc.createElement('span');
+      p.className = 'framer-saved-sparkle-particle';
+      const angle = (i / 8) * Math.PI * 2;
+      const distance = 22 + Math.random() * 14;
+      const tx = Math.cos(angle) * distance;
+      const ty = Math.sin(angle) * distance;
+      const color = colors[i % colors.length];
+
+      p.style.setProperty('--tx', tx + 'px');
+      p.style.setProperty('--ty', ty + 'px');
+      p.style.backgroundColor = color;
+      container.appendChild(p);
+    }
+
+    if (doc.body) doc.body.appendChild(container);
+    setTimeout(function () { container.remove(); }, 600);
+  }
+
+  function updateAllBtnStates(targetItemId) {
+    const currentDetailId = isDetailPage() ? normalizeId(win.location.href) : null;
 
     doc.querySelectorAll('.framer-saved-detail-btn').forEach(function (btn) {
-      updateDetailBtnContent(btn, saved);
+      if (!targetItemId || !currentDetailId || normalizeId(targetItemId) === currentDetailId) {
+        const saved = isItemSaved(currentDetailId || targetItemId);
+        updateDetailBtnContent(btn, saved);
+      }
     });
 
     doc.querySelectorAll('.framer-saved-card-inline-btn').forEach(function (btn) {
-      setCardBtnState(btn, saved);
+      let btnId = btn.getAttribute('data-id');
+      if (!btnId) {
+        const link = btn.closest('a[href]') || (btn.parentElement && btn.parentElement.querySelector('a[href]'));
+        if (link) {
+          btnId = normalizeId(link.href);
+          btn.setAttribute('data-id', btnId);
+        }
+      }
+      if (btnId) {
+        setCardBtnState(btn, isItemSaved(btnId));
+      }
     });
+
+    updateBadgeCount();
   }
 
   function parseTitleAndSubtitle(rawTitle) {
