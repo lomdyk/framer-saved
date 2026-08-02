@@ -539,15 +539,14 @@
       const cls = classNameOf(el).toLowerCase();
       const tag = (el.tagName || '').toLowerCase();
 
-      // Skip inner sub-containers like titleRow, info, stats, subline, footer
-      if (/titlerow|info|stats|subline|footer|meta|author|creator|byline/.test(cls)) {
+      // Skip inner sub-containers like titleRow, info, stats, subline, footer, breadcrumbs, nav
+      if (/titlerow|info|stats|subline|footer|meta|author|creator|byline|breadcrumb|toolbar|nav/.test(cls)) {
         el = el.parentElement;
         continue;
       }
 
       if (/tile|card|post|item/.test(cls) || tag === 'article' || tag === 'li') {
         topTile = el;
-        // If class contains "tile", we have reached the true top-level card!
         if (/tile/i.test(cls)) break;
       }
 
@@ -571,13 +570,20 @@
   }
 
   function injectCardBookmarkButtons() {
-    if (!isMarketplacePage()) return;
+    // DO NOT inject small tile buttons on detail pages or non-marketplace pages.
+    if (!isMarketplacePage() || isDetailPage()) return;
 
     const links = doc.querySelectorAll('a[href*="/marketplace/"]');
     for (let i = 0; i < links.length; i++) {
       const link = links[i];
       const href = link.getAttribute('href') || '';
+
+      // Skip navigation, header, breadcrumb, and toolbar links
+      if (link.closest('nav, header, [class*="breadcrumb"], [class*="toolbar"], [class*="nav"]')) continue;
+
+      // Detail-page link pattern only, excluding category/tag hub pages
       if (!/\/marketplace\/(components|templates|vectors|plugins)\/[^/?#]+\/?$/.test(href)) continue;
+      if (/\/(categories|tags|author|creator|collections)\/?$/i.test(href)) continue;
 
       const tile = findTile(link);
       if (!tile) continue;
