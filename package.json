@@ -16,5 +16,8 @@
   "license": "MIT",
   "devDependencies": {
     "jsdom": "^26.0.0"
+  },
+  "dependencies": {
+    "jszip": "^3.10.1"
   }
 }
