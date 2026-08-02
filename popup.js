@@ -71,7 +71,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
       chrome.storage.local.set({ [STORAGE_KEY]: items }, cb || (() => {}));
     } else {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+      } catch (e) { /* ignore */ }
       if (cb) cb();
     }
   }
@@ -133,6 +135,7 @@ document.addEventListener('DOMContentLoaded', () => {
           price: 'Free',
           creator: 'Imported',
           thumbnail: '',
+          fetchedMeta: false,
           savedAt: new Date().toISOString()
         });
         count++;

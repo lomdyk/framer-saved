@@ -8,6 +8,7 @@
   //  - Saved view renders as an overlay that *always* closes
   //    (Back button, Esc, sidebar click, hashchange, popstate).
   //  - Consistent item ids across cards / detail pages / import.
+  //  - Automatic background metadata & preview image fetch for imported links.
   //  - All injected strings are HTML-escaped.
   // ============================================================
 
@@ -26,6 +27,7 @@
   let toastTimer = null;
   let injectQueued = false;
   let lastUrl = win.location.pathname + win.location.search + win.location.hash;
+  const pendingFetches = new Set();
 
   // ------------------------------------------------------------
   // Icons (stroke="currentColor" so they inherit button colors)
@@ -135,14 +137,14 @@
   function isItemSaved(idOrUrl) {
     const needle = normalizeId(idOrUrl);
     return savedItems.some(function (item) {
-      return item.id === needle || normalizeId(item.url) === needle;
+      return item.id === needle || item.url === idOrUrl;
     });
   }
 
   function findIndexById(idOrUrl) {
     const needle = normalizeId(idOrUrl);
     for (let i = 0; i < savedItems.length; i++) {
-      if (savedItems[i].id === needle || normalizeId(savedItems[i].url) === needle) return i;
+      if (savedItems[i].id === needle || savedItems[i].url === idOrUrl) return i;
     }
     return -1;
   }
@@ -158,12 +160,71 @@
   }
 
   // ------------------------------------------------------------
+  // Background Metadata & Image Fetcher for Imported Links
+  // ------------------------------------------------------------
+  function fetchMetadataForItem(item) {
+    if (!item || !item.url || item.fetchedMeta || pendingFetches.has(item.id)) return;
+
+    const fetchFn = (typeof fetch !== 'undefined' ? fetch : (win && win.fetch)) || null;
+    if (!fetchFn) return;
+
+    pendingFetches.add(item.id);
+
+    fetchFn(item.url)
+      .then(function (res) { return res.text(); })
+      .then(function (htmlText) {
+        pendingFetches.delete(item.id);
+        const parser = new DOMParser();
+        const parsedDoc = parser.parseFromString(htmlText, 'text/html');
+
+        const ogImage = parsedDoc.querySelector('meta[property="og:image"], meta[name="twitter:image"]');
+        const ogTitle = parsedDoc.querySelector('meta[property="og:title"], meta[name="twitter:title"]');
+
+        let modified = false;
+
+        if (ogImage && ogImage.content && !ogImage.content.includes('community-og.jpg')) {
+          item.thumbnail = ogImage.content;
+          modified = true;
+        }
+
+        if (ogTitle && ogTitle.content) {
+          const cleanTitle = ogTitle.content.replace(/—\s*Framer.*$/i, '').trim();
+          const parsed = parseTitleAndSubtitle(cleanTitle);
+          if (parsed.title) item.title = parsed.title;
+          if (parsed.subtitle) item.subtitle = parsed.subtitle;
+          modified = true;
+        }
+
+        item.fetchedMeta = true;
+
+        if (modified) {
+          saveItemsToStorage();
+          const overlay = doc.getElementById(OVERLAY_ID);
+          if (overlay) renderSavedGrid();
+        }
+      })
+      .catch(function (err) {
+        pendingFetches.delete(item.id);
+        item.fetchedMeta = true;
+      });
+  }
+
+  function fetchMissingMetadataForCollection() {
+    savedItems.forEach(function (item) {
+      if (!item.thumbnail || item.thumbnail.includes('community-og.jpg') || !item.fetchedMeta) {
+        fetchMetadataForItem(item);
+      }
+    });
+  }
+
+  // ------------------------------------------------------------
   // Storage
   // ------------------------------------------------------------
   function loadSavedItems(callback) {
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
       chrome.storage.local.get([STORAGE_KEY], function (res) {
         savedItems = normalizeStoredItems(res[STORAGE_KEY]);
+        fetchMissingMetadataForCollection();
         callback && callback();
       });
     } else {
@@ -173,6 +234,7 @@
       } catch (e) {
         savedItems = [];
       }
+      fetchMissingMetadataForCollection();
       callback && callback();
     }
   }
@@ -196,6 +258,7 @@
       if (areaName === 'local' && changes[STORAGE_KEY]) {
         savedItems = normalizeStoredItems(changes[STORAGE_KEY].newValue);
         updateBadgeCount();
+        fetchMissingMetadataForCollection();
         const overlay = doc.getElementById(OVERLAY_ID);
         if (overlay) renderSavedGrid();
       }
@@ -237,7 +300,7 @@
       showToast('Removed from Saved');
       return false;
     } else {
-      savedItems.unshift({
+      const newItem = {
         id: normalizeId(meta.url),
         url: canonicalUrl(meta.url),
         title: meta.title || 'Framer Component',
@@ -246,9 +309,11 @@
         creator: meta.creator || 'Framer Creator',
         thumbnail: meta.thumbnail || '',
         savedAt: new Date().toISOString()
-      });
+      };
+      savedItems.unshift(newItem);
       saveItemsToStorage();
       showToast('Saved to Favorites!');
+      fetchMetadataForItem(newItem);
       return true;
     }
   }
@@ -350,7 +415,6 @@
   // 1) Sidebar "Saved" tab
   // ------------------------------------------------------------
   function findSidebarContext() {
-    // Anchor on the "Members" nav item (stable, text-based).
     const links = doc.querySelectorAll('nav a[href], aside a[href], [class*="sidebar"] a[href], a[href*="/community/"]');
     for (let i = 0; i < links.length; i++) {
       const link = links[i];
@@ -361,7 +425,6 @@
         if (container) return { container: container, sibling: link };
       }
     }
-    // Fallback: any nav/aside that contains community links.
     for (let i = 0; i < links.length; i++) {
       const link = links[i];
       const href = (link.getAttribute('href') || '') || '';
@@ -418,7 +481,6 @@
     const ctaBtn = findCtaButton();
     if (!ctaBtn || !ctaBtn.parentElement) return;
 
-    // Already injected in this exact spot? Check siblings
     const siblings = Array.prototype.slice.call(ctaBtn.parentElement.children);
     if (siblings.some(function (s) {
       return s.classList && s.classList.contains('framer-saved-detail-btn');
@@ -438,7 +500,6 @@
       updateDetailBtnContent(btn, nowSaved);
     });
 
-    // Insert between the vote/action icons and the primary CTA.
     ctaBtn.parentElement.insertBefore(btn, ctaBtn);
   }
 
@@ -461,16 +522,11 @@
     return typeof c === 'string' ? c : (c && c.baseVal) || '';
   }
 
-  /**
-   * Climb from the card's <a> to the tile/card container.
-   * Never returns the <a> itself — its class often contains
-   * "post-tile"/"tile" too, which used to break the lookup.
-   */
   function findTile(link) {
     let el = link;
     for (let i = 0; i < 7 && el; i++) {
       if (el.tagName === 'A') {
-        el = el.parentElement; // Step over the <a> itself!
+        el = el.parentElement;
         continue;
       }
       const cls = classNameOf(el).toLowerCase();
@@ -502,7 +558,6 @@
     for (let i = 0; i < links.length; i++) {
       const link = links[i];
       const href = link.getAttribute('href') || '';
-      // Detail-page link only: /marketplace/<type>/<slug>[/]
       if (!/\/marketplace\/(components|templates|vectors|plugins)\/[^/?#]+\/?$/.test(href)) continue;
 
       const tile = findTile(link);
@@ -577,9 +632,8 @@
     if (isSavedRoute()) {
       if (enteredViaPush) {
         enteredViaPush = false;
-        hist.back(); // popstate → syncSavedViewState() removes the overlay
+        hist.back();
       } else {
-        // Opened via direct URL load — drop the hash in place, no reload.
         const target = win.location.pathname + win.location.search;
         try {
           hist.replaceState(null, '', target);
@@ -592,7 +646,6 @@
   }
 
   function computeOverlayBounds() {
-    // Cover exactly Framer's content area (right of the sidebar).
     const main = doc.querySelector('main, [role="main"], [class*="content"]');
     if (main) {
       const r = main.getBoundingClientRect();
@@ -657,12 +710,10 @@
 
     doc.body.appendChild(overlay);
 
-    // Back button
     overlay.querySelector('.framer-saved-back-btn').addEventListener('click', function () {
       closeSavedView();
     });
 
-    // Import panel toggle
     const importPanel = overlay.querySelector('.framer-saved-import-panel');
     const importInput = overlay.querySelector('#framer-saved-import-input');
     overlay.querySelector('.framer-saved-import-btn').addEventListener('click', function () {
@@ -680,7 +731,6 @@
       if (count === 0) showToast('No new valid Framer links found');
     });
 
-    // Search
     overlay.querySelector('#framer-saved-search').addEventListener('input', function (e) {
       currentSearchQuery = e.target.value;
       renderSavedGrid();
@@ -688,7 +738,6 @@
 
     renderSavedGrid();
 
-    // Focus search unless the collection is empty.
     setTimeout(function () {
       const input = overlay.querySelector('#framer-saved-search');
       if (input && savedItems.length > 0 && win.innerWidth > 640) input.focus();
@@ -748,7 +797,6 @@
     html += '</div>';
     grid.innerHTML = html;
 
-    // Broken image fallback (attach via JS — the page CSP may block inline handlers).
     grid.querySelectorAll('img.framer-saved-card-thumb').forEach(function (img) {
       function markBroken() {
         img.classList.add('is-broken');
@@ -791,12 +839,13 @@
   }
 
   // ------------------------------------------------------------
-  // Import links
+  // Import links with background metadata fetch
   // ------------------------------------------------------------
   function importLinks(urlsText) {
     if (!urlsText) return 0;
     const lines = String(urlsText).split(/[\n,]+/).map(function (s) { return s.trim(); }).filter(Boolean);
     let count = 0;
+    const newlyImported = [];
 
     lines.forEach(function (rawUrl) {
       if (!/framer\.com/.test(rawUrl)) return;
@@ -809,7 +858,7 @@
         .replace(/[-_]/g, ' ')
         .replace(/\b\w/g, function (c) { return c.toUpperCase(); });
 
-      savedItems.unshift({
+      const item = {
         id: id,
         url: canonicalUrl(clean),
         title: formattedTitle,
@@ -817,8 +866,12 @@
         price: 'Free',
         creator: 'Imported',
         thumbnail: '',
+        fetchedMeta: false,
         savedAt: new Date().toISOString()
-      });
+      };
+
+      savedItems.unshift(item);
+      newlyImported.push(item);
       count++;
     });
 
@@ -826,6 +879,7 @@
       saveItemsToStorage();
       updateBadgeCount();
       showToast('Imported ' + count + ' link' + (count === 1 ? '' : 's'));
+      newlyImported.forEach(fetchMetadataForItem);
     }
     return count;
   }
@@ -873,8 +927,6 @@
       injectAll();
     });
 
-    // If Framer's router doesn't react to a sidebar click (e.g. the link points
-    // to the page we are already on), force-close the overlay ourselves.
     doc.addEventListener(
       'click',
       function (e) {
@@ -887,13 +939,12 @@
         if (!isNavLink) return;
 
         setTimeout(function () {
-          if (!isSavedRoute()) return; // already closed
+          if (!isSavedRoute()) return;
           let targetPath = null;
           try {
             targetPath = new URL(link.href, ORIGIN).pathname;
           } catch (err) { /* ignore */ }
           if (targetPath === win.location.pathname) {
-            // Same-page link while in saved view → drop the hash ourselves.
             try {
               hist.replaceState(null, '', win.location.pathname + win.location.search);
             } catch (err) { /* ignore */ }
@@ -904,7 +955,6 @@
       true
     );
 
-    // Escape always closes the saved view.
     doc.addEventListener('keydown', function (e) {
       if (e.key === 'Escape' && isSavedRoute()) {
         e.preventDefault();
@@ -938,12 +988,11 @@
     const observer = new MutationObserver(function () {
       try {
         scheduleInject();
-        syncSavedViewState(); // cheap; keeps the overlay alive across SPA re-renders
+        syncSavedViewState();
       } catch (err) { warn(err); }
     });
     observer.observe(doc.body, { childList: true, subtree: true });
 
-    // Safety net for SPA transitions MutationObserver might miss.
     setInterval(function () {
       if (!doc.hidden) {
         if (urlChanged()) injectAll();
@@ -951,24 +1000,8 @@
       }
     }, 500);
 
-    let scrollRaf = 0;
     win.addEventListener('scroll', function () {
-      if (scrollRaf) return;
-      scrollRaf = requestAnimationFrame(function () {
-        scrollRaf = 0;
-        if (!doc.hidden) injectCardBookmarkButtons();
-      });
-    }, { passive: true });
-
-    win.addEventListener('resize', function () {
-      var overlay = doc.getElementById(OVERLAY_ID);
-      if (overlay) {
-        var bounds = computeOverlayBounds();
-        overlay.style.top = bounds.top + 'px';
-        overlay.style.right = bounds.right + 'px';
-        overlay.style.bottom = bounds.bottom + 'px';
-        overlay.style.left = bounds.left + 'px';
-      }
+      if (!doc.hidden) injectCardBookmarkButtons();
     }, { passive: true });
 
     injectAll();
