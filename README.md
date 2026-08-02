@@ -1,90 +1,114 @@
-# Framer Saved
+<div align="center">
 
-A lightweight Chrome extension that adds bookmarking, folder collections, a native "Saved" tab, and one-click **Live Preview export** (HTML/CSS/JS ZIP) to the Framer Marketplace.
+<img src="./assets/hero-banner.jpg" alt="Framer Saved Extension Banner" width="100%" style="border-radius: 12px; margin-bottom: 20px;" />
 
-Framer Marketplace lacks native bookmarking/favorites and source export. **Framer Saved** injects a Save button into component/template detail headers, quick-bookmark icons on grid cards, a "Saved" tab in Framer's community sidebar, and a code export button that pulls JS/CSS/HTML chunks straight from the Live Preview — all styled to match Framer's dark design system.
+# 🔖 Framer Saved
 
----
+### *Native Bookmarking, User Collections & Live Preview ZIP Exporter for Framer Marketplace*
 
-## Features
+[![Chrome Extension](https://img.shields.io/badge/Manifest-MV3-0099FF?style=for-the-badge&logo=googlechrome&logoColor=white)](https://chrome.google.com/webstore)
+[![Tests Passing](https://img.shields.io/badge/Tests-24%2F24%20Passing-30D158?style=for-the-badge&logo=github-actions&logoColor=white)](./test)
+[![License](https://img.shields.io/badge/License-MIT-FF2D55?style=for-the-badge)](./LICENSE)
+[![Zero Backend](https://img.shields.io/badge/Privacy-100%25%20Local%20Storage-8A8F98?style=for-the-badge)](#privacy--architecture)
 
-- **Sidebar Integration:** A native-looking "Saved" tab (with live count badge) under Community navigation.
-- **Saved View:** Framer-native overlay over the content area with Pinterest/Awwwards-style folder pills, search, sort (newest/oldest/title/price) and a settings drawer.
-- **Header Save + Export Buttons:** Bordered pill buttons (`Save` / `Saved`) and a blue `Export` button, inserted next to `Copy Component` / `Buy for $X` / `Use for Free`.
-- **Tile Card Bookmarks + Export:** Ghost bookmark icons (plus hover-only export icon) on marketplace grid cards.
-- **Folders:** Built-in defaults (Minimalist, 3D & Motion, Dark UI, Interactions) + unlimited custom folders. Create/delete/rename, add a component to multiple folders.
-- **Deduplicated:** Items saved from a card, detail page, or imported always share the same id — no duplicates.
-- **Search, Import & Export:** Filter your collection, bulk-import URLs, export/import a JSON backup, clear all data.
-- **⌘/Ctrl+K search focus** and **S key quick-save** (toggle in settings).
-- **Sort dropdown** in the Saved overlay (newest / oldest / title A-Z / price).
-- **Local Storage First:** Uses `chrome.storage.local`. No servers, no accounts.
+<p align="center">
+  <b>Framer Saved</b> bridges the gap in the Framer Marketplace by adding robust <b>bookmarking</b>, <b>custom folder collections</b>, a native <b>Saved</b> sidebar tab, and <b>one-click Live Preview export (HTML/CSS/JS ZIP)</b> — all seamlessly integrated into Framer's dark design system with playful spring micro-animations.
+</p>
 
-### Live Preview Export (HTML/CSS/JS ZIP)
+[✨ Key Features](#-key-features) • [📦 Live Preview ZIP Exporter](#-live-preview-export-htmlcssjs-zip) • [🚀 Installation](#-installation) • [⌨️ Hotkeys](#%EF%B8%8F-hotkeys) • [🛠 Development](#-development)
 
-Each saved component card (and every detail page) has a blue **Export** button. One click:
-
-1. Opens the component's Live Preview (`*.framer.website` / `*.framer.app`) in a hidden background tab.
-2. Waits for hydration, auto-scrolls to trigger lazy-loaded chunks and images.
-3. Scrapes every resource actually loaded (JS `.mjs` chunks, CSS, images, fonts, JSON).
-4. Rewrites all URLs to relative paths.
-5. Strips analytics (PostHog / GA / Clarity), removes the "Made with Framer" badge (toggleable).
-6. Packages everything into a ZIP and saves it to your Downloads as `framer-exports/<slug>-YYYY-MM-DD.zip`.
-
-Open `index.html` from the ZIP via any static server (`npx serve`, `python3 -m http.server`) to get a fully-working offline copy with all Framer animations intact.
-
-**Export options** (in ⚙️ Settings → Live Preview Export):
-
-- **Include JavaScript** — keep Framer runtime for working animations (on by default).
-- **Strip JS for static snapshot** — removes JS and fixes `opacity: 0` initial states so the first frame renders correctly.
-- **Auto-scroll to trigger lazy assets** (on by default).
-- **Remove "Made with Framer" badge** (on by default).
-- **Remove analytics/tracking** (on by default).
-- **Hydration wait time** (default 2500ms).
+</div>
 
 ---
 
-## Installation
+## ✨ Key Features
 
-1. Clone or download this repository.
-2. Open Chrome (or Edge / Brave) and navigate to `chrome://extensions`.
+| Feature | Description |
+| :--- | :--- |
+| **🔖 Sidebar Saved Tab** | Injects a native-looking `Saved` tab with a real-time badge count right under Community navigation. |
+| **📁 Custom User Collections** | Create, rename, and delete unlimited custom folders (e.g. `Minimalist`, `Dark UI`, `3D & Motion`, `Interactions`). Add items to multiple folders instantly. |
+| **📌 Inline Card & Detail Bookmarks** | Save components from any tile card thumbnail (top-left button) or detail page header with tactile press feedback and spring pop animations. |
+| **📦 1-Click Live Preview ZIP Exporter** | Extract complete offline-ready components (`index.html` + JS/CSS/assets ZIP archive) straight from Live Previews. |
+| **🔗 Folder Link Exporter** | Export/copy all URLs from any selected folder to clipboard and download them as a `.txt` list with one click. |
+| **🔀 Sorting & Instant Search** | Sort by *Newest*, *Oldest*, *Title A→Z*, or *Price*. Filter by query with live instant grid rendering. |
+| **⚙️ Customization Panel** | Settings drawer to toggle export parameters (strip analytics, static vs interactive JS, auto-scroll), hotkeys, and JSON backup import/export. |
+| **✨ Playful Micro-Animations** | Fluid spring physics on button press, elastic popover pop, wiggle icon toasts, and card cascade entrances. |
+
+---
+
+## 📦 Live Preview Export (HTML/CSS/JS ZIP)
+
+Click the **Export** button on any component detail page or card hover preview to generate an offline ZIP package:
+
+1. **Background Extraction:** Launches a hidden background tab pointing to `*.framer.website` / `*.framer.app`.
+2. **Hydration & Auto-scroll:** Waits for React/Framer hydration and auto-scrolls to trigger lazy-loaded assets.
+3. **Asset Harvesting:** Collects JS `.mjs` modules, styles, WebGL assets, SVGs, and web fonts.
+4. **URL Normalization & Cleaning:** Rewrites paths to relative format, strips PostHog/GA analytics, and optionally removes the "Made with Framer" badge.
+5. **ZIP Delivery:** Generates a clean archive saved directly to your `Downloads/framer-exports/`.
+
+> [!TIP]
+> Open `index.html` from the extracted ZIP with any local web server (`npx serve`, `python3 -m http.server`, or Live Server) to run your offline component with full Framer animations intact!
+
+---
+
+## 🚀 Installation
+
+1. **Clone or Download** this repository:
+   ```bash
+   git clone https://github.com/lomdyk/framer-saved.git
+   ```
+2. Open Chrome (or Edge / Brave / Vivaldi) and navigate to `chrome://extensions`.
 3. Enable **Developer mode** in the top-right corner.
-4. Click **Load unpacked** and select the project directory.
-5. Visit [Framer Marketplace](https://www.framer.com/community/marketplace/components/).
+4. Click **Load unpacked** and select the `framer-saved` directory.
+5. Visit [Framer Marketplace](https://www.framer.com/community/marketplace/components/) to see Framer Saved in action!
 
 ---
 
-## Notes for maintainers
+## ⌨️ Hotkeys
 
-- The content script deliberately avoids Framer's hashed CSS-module class names and relies on semantic, text-based selectors instead, so it keeps working across Framer deploys.
-- All injected strings are HTML-escaped; the saved view is an overlay that never mutates Framer's own layout.
-- To open the saved view directly, navigate to any marketplace page with `#saved` appended (e.g. `https://www.framer.com/community/marketplace/components/#saved`).
-- Background service worker (`background.js`) manages export jobs: opens a hidden tab, injects `extractor.js` via `chrome.scripting`, collects assets, zips with JSZip, hands to `chrome.downloads`.
+| Hotkey | Action |
+| :---: | :--- |
+| <kbd>S</kbd> | Quick-save / bookmark current component (on detail pages) |
+| <kbd>Ctrl</kbd> + <kbd>K</kbd> / <kbd>⌘</kbd> + <kbd>K</kbd> | Jump focus to the search bar inside the Saved Collections view |
+| <kbd>Esc</kbd> | Close Save Popover, Settings Drawer, or exit the Saved Collections overlay |
+
+*(All hotkeys can be toggled on/off in ⚙️ Settings → Interface)*
 
 ---
 
-## Development
+## 📂 Privacy & Architecture
+
+- **100% Local & Offline First:** Uses `chrome.storage.local`. No external databases, no logins, no telemetry.
+- **Resilient Selectors:** Uses semantic DOM matching rather than obfuscated CSS-module hash classes, ensuring persistence across Framer site updates.
+- **Clean Overlay:** Renders inside an isolated overlay container (`#framer-saved-overlay`) without breaking Framer's SPA layout or navigation state.
+
+---
+
+## 🛠 Development & Testing
 
 ```bash
-npm install   # dev deps (jsdom for tests)
-npm test      # runs unit + integration tests
+npm install   # Install test runner dependencies (JSDOM)
+npm test      # Execute unit tests & JSDOM integration suite
 ```
 
-File overview:
+### Project Structure
 
-| File | Purpose |
-| --- | --- |
-| `manifest.json` | MV3 manifest (permissions: storage, downloads, scripting, tabs) |
-| `content.js` | Main injected UI (sidebar, buttons, Saved overlay, settings panel, popover, export triggers, hotkeys, sort) |
-| `background.js` | Service worker: orchestrates exports, zips with JSZip, settings defaults |
-| `extractor.js` | Injected into Live Preview tabs to harvest HTML + assets after scrolling |
-| `styles.css` | All UI styles matching Framer's dark theme |
-| `popup.html/js` | Toolbar popup with recent items, quick-open, import/export JSON |
-| `vendor/jszip.min.js` | JSZip vendored for ZIP generation in the SW |
-| `preview.html` | Static UI preview (standalone, for visually checking styles) |
-| `test/` | Unit tests (pure functions) + jsdom integration tests |
+```
+framer-saved/
+├── assets/
+│   └── hero-banner.jpg       # Banner graphic
+├── manifest.json             # Manifest V3 configuration
+├── content.js                # Injected UI & SPA router engine
+├── background.js             # Service worker & ZIP orchestrator
+├── extractor.js              # Live Preview DOM & asset harvester
+├── styles.css                # Framer dark theme & spring animations
+├── popup.html / popup.js     # Toolbar popup & JSON backup tool
+├── vendor/jszip.min.js       # Vendored JSZip generator
+└── test/                     # Unit & JSDOM integration test suite
+```
 
 ---
 
-## License
+## 📄 License
 
-MIT
+Distributed under the **MIT License**. See [`LICENSE`](./LICENSE) for details.
