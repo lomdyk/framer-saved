@@ -179,6 +179,26 @@
 /* ------------------------------------------------------------
    Marketplace grid card bookmark + export icons
    ------------------------------------------------------------ */
+/* Ensure Framer's full-card link action overlay sits above decorative thumbnail wrappers, but below our action buttons */
+a[class*="linkAction"],
+a[class*="LinkAction"] {
+  z-index: 4 !important;
+  pointer-events: auto !important;
+}
+
+/* Ensure decorative thumbnail containers do not capture clicks away from the card link */
+div[class*="interactive-thumbnail"],
+div[class*="interactiveThumbnail"] {
+  pointer-events: none !important;
+}
+
+div[class*="interactive-thumbnail"] button,
+div[class*="interactiveThumbnail"] button,
+div[class*="interactive-thumbnail"] a,
+div[class*="interactiveThumbnail"] a {
+  pointer-events: auto !important;
+}
+
 .framer-saved-card-inline-btn {
   position: absolute;
   top: 12px;

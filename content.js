@@ -1288,6 +1288,15 @@
         openSavePopover(meta, actionBtn);
       });
 
+      if (link && link.style) {
+        try {
+          if (!link.style.zIndex || parseInt(link.style.zIndex, 10) < 4) {
+            link.style.zIndex = '4';
+          }
+          link.style.pointerEvents = 'auto';
+        } catch (e) { /* ignore */ }
+      }
+
       ensurePositioned(tile);
       tile.appendChild(actionBtn);
     }
