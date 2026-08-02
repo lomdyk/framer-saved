@@ -539,8 +539,8 @@
       const cls = classNameOf(el).toLowerCase();
       const tag = (el.tagName || '').toLowerCase();
 
-      // Skip inner sub-containers like titleRow, info, stats, subline, footer, breadcrumbs, nav
-      if (/titlerow|info|stats|subline|footer|meta|author|creator|byline|breadcrumb|toolbar|nav/.test(cls)) {
+      // Skip inner sub-containers like titleRow, info, stats, subline, footer, breadcrumb
+      if (/titlerow|info|stats|subline|footer|meta|author|creator|byline|breadcrumb/.test(cls)) {
         el = el.parentElement;
         continue;
       }
@@ -578,8 +578,8 @@
       const link = links[i];
       const href = link.getAttribute('href') || '';
 
-      // Skip navigation, header, breadcrumb, and toolbar links
-      if (link.closest('nav, header, [class*="breadcrumb"], [class*="toolbar"], [class*="nav"]')) continue;
+      // Skip navigation bars and breadcrumb items strictly (do not check generic class names like nav/toolbar)
+      if (link.closest('nav, [class*="breadcrumb"], [class*="breadCrumb"], [class*="Breadcrumb"]')) continue;
 
       // Detail-page link pattern only, excluding category/tag hub pages
       if (!/\/marketplace\/(components|templates|vectors|plugins)\/[^/?#]+\/?$/.test(href)) continue;
