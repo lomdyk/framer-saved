@@ -1614,13 +1614,14 @@
     savedFolders.forEach(function (f) {
       const count = getItemFolderCount(f.id);
       const isDefault = DEFAULT_FOLDERS.some(function (d) { return d.id === f.id; });
+      const hasDel = !isDefault;
       html +=
-        '<div class="framer-saved-folder-pill-wrap">' +
+        '<div class="framer-saved-folder-pill-wrap' + (hasDel ? ' has-del' : '') + '">' +
         '<button type="button" class="framer-saved-folder-pill' + (activeFolderId === f.id ? ' active' : '') + '" data-folder-id="' + esc(f.id) + '">' +
         '  <span>' + esc(f.name) + '</span>' +
         '  <span class="pill-count">' + count + '</span>' +
         '</button>' +
-        (!isDefault ? '<button class="framer-saved-folder-pill-del" type="button" data-folder-id="' + esc(f.id) + '" title="Delete folder">' + ICON_CLOSE + '</button>' : '') +
+        (hasDel ? '<button class="framer-saved-folder-pill-del" type="button" data-folder-id="' + esc(f.id) + '" title="Delete folder">' + ICON_CLOSE + '</button>' : '') +
         '</div>';
     });
 
