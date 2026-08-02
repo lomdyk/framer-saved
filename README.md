@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="./assets/hero-banner.jpg" alt="Framer Saved Extension Banner" width="100%" style="border-radius: 12px; margin-bottom: 20px;" />
+<img src="./assets/msedge_WYKERP9z9Q.png" alt="Framer Saved Extension Banner" width="100%" style="border-radius: 12px; margin-bottom: 20px;" />
 
 # 🔖 Framer Saved
 
