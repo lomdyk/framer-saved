@@ -142,6 +142,23 @@
     };
   }
 
+  function addActionListener(element, handler) {
+    if (!element) return;
+
+    element.addEventListener('click', function (e) {
+      e.stopPropagation();
+      handler(e);
+    });
+
+    element.addEventListener('pointerdown', function (e) {
+      e.stopPropagation();
+    });
+
+    element.addEventListener('mousedown', function (e) {
+      e.stopPropagation();
+    });
+  }
+
   function stripUrlToPath(href) {
     // Defensive fallback used when the URL constructor is unavailable:
     // drop scheme://host, query and hash, and normalize slashes.
@@ -760,8 +777,8 @@
         '</div>';
 
       popover.querySelectorAll('.framer-saved-popover-item').forEach(function (el) {
-        el.addEventListener('click', function (e) {
-          e.stopPropagation();
+        addActionListener(el, function (e) {
+          if (e.target && e.target.closest && e.target.closest('.framer-saved-popover-folder-del')) return;
           const fId = el.getAttribute('data-folder-id');
           const isNowInFolder = toggleItemFolder(itemNormId, fId);
           if (isNowInFolder) triggerSparkleBurst(el);
@@ -772,8 +789,7 @@
         });
         const del = el.querySelector('.framer-saved-popover-folder-del');
         if (del) {
-          del.addEventListener('click', function (e) {
-            e.stopPropagation();
+          addActionListener(del, function (e) {
             const fId = el.getAttribute('data-folder-id');
             const fObj = savedFolders.find(function (x) { return x.id === fId; });
             if (!fObj) return;
@@ -789,8 +805,7 @@
 
       const closeBtn = popover.querySelector('.framer-saved-popover-close');
       if (closeBtn) {
-        closeBtn.addEventListener('click', function (e) {
-          e.stopPropagation();
+        addActionListener(closeBtn, function (e) {
           closeSavePopover();
         });
       }
@@ -819,36 +834,20 @@
             handleAddFolder();
           }
         });
-        addInput.addEventListener('click', function (e) {
-          e.stopPropagation();
-        });
+        addInput.addEventListener('pointerdown', function (e) { e.stopPropagation(); }, true);
+        addInput.addEventListener('mousedown', function (e) { e.stopPropagation(); }, true);
+        addInput.addEventListener('click', function (e) { e.stopPropagation(); }, true);
       }
 
       if (addBtn) {
-        addBtn.addEventListener('click', function (e) {
-          e.stopPropagation();
-          e.preventDefault();
+        addActionListener(addBtn, function (e) {
           handleAddFolder();
-        });
-      }
-
-      if (addInput) {
-        addInput.addEventListener('keydown', function (e) {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            e.stopPropagation();
-            handleAddFolder();
-          }
         });
       }
 
       const removeBtn = popover.querySelector('.framer-saved-popover-remove-btn');
       if (removeBtn) {
-        removeBtn.addEventListener('click', function (e) {
-          e.preventDefault();
-          e.stopPropagation();
-          // Try every id form we know about — stored ids from older versions
-          // or imported links may not match the current page id 1:1.
+        addActionListener(removeBtn, function (e) {
           const candidates = [itemNormId, canonicalKey];
           if (meta) {
             if (meta.id) candidates.push(meta.id);
@@ -878,13 +877,16 @@
     updateAllBtnStates(itemNormId);
 
     setTimeout(function () {
-      if (!doc.getElementById || doc.getElementById(POPOVER_ID) !== popover) return; // already closed
+      if (!doc.getElementById || doc.getElementById(POPOVER_ID) !== popover) return;
       popoverOutsideHandler = function (e) {
         if (!popover.contains(e.target) && e.target !== triggerBtn && !triggerBtn.contains(e.target)) {
           closeSavePopover();
         }
       };
-      if (doc.addEventListener) doc.addEventListener('click', popoverOutsideHandler, true);
+      if (doc.addEventListener) {
+        doc.addEventListener('pointerdown', popoverOutsideHandler, true);
+        doc.addEventListener('click', popoverOutsideHandler, true);
+      }
     }, 50);
   }
 
@@ -1240,9 +1242,7 @@
       btn.type = 'button';
       btn.setAttribute('data-id', metadata.id);
       updateDetailBtnContent(btn, saved);
-      btn.addEventListener('click', function (e) {
-        e.preventDefault();
-        e.stopPropagation();
+      addActionListener(btn, function (e) {
         openSavePopover(getCurrentPageMetadata(), btn);
       });
       parent.insertBefore(btn, ctaBtn);
@@ -1409,10 +1409,7 @@
       actionBtn.setAttribute('data-id', cardId);
       setCardBtnState(actionBtn, saved);
 
-      actionBtn.addEventListener('click', function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-
+      addActionListener(actionBtn, function (e) {
         const img = link.querySelector('img') || tile.querySelector('img');
         const titleEl =
           tile.querySelector('[class*="name"], [class*="title"], h2, h3, h4') || link;
@@ -2068,9 +2065,7 @@
     });
 
     grid.querySelectorAll('.framer-saved-card-remove-btn').forEach(function (btn) {
-      btn.addEventListener('click', function (e) {
-        e.preventDefault();
-        e.stopPropagation();
+      addActionListener(btn, function (e) {
         const removed = removeSavedItem(btn.getAttribute('data-id'));
         if (removed) {
           renderFolderPills();
