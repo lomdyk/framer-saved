@@ -879,9 +879,23 @@
     setTimeout(function () {
       if (!doc.getElementById || doc.getElementById(POPOVER_ID) !== popover) return;
       popoverOutsideHandler = function (e) {
-        if (!popover.contains(e.target) && e.target !== triggerBtn && !triggerBtn.contains(e.target)) {
-          closeSavePopover();
+        const t = e.target;
+        if (!t) return;
+
+        // 1. Direct contains check on popover & trigger button
+        if (popover === t || (popover.contains && popover.contains(t)) || triggerBtn === t || (triggerBtn.contains && triggerBtn.contains(t))) return;
+
+        // 2. Detached node check (if node was unmounted during innerHTML re-render, it was INSIDE popover!)
+        if (t.ownerDocument && !t.ownerDocument.contains(t)) return;
+        if (doc.documentElement && !doc.documentElement.contains(t)) return;
+
+        // 3. Composed path check (if browser supports event.composedPath)
+        if (e.composedPath && typeof e.composedPath === 'function') {
+          const path = e.composedPath();
+          if (path.includes(popover) || path.includes(triggerBtn)) return;
         }
+
+        closeSavePopover();
       };
       if (doc.addEventListener) {
         doc.addEventListener('pointerdown', popoverOutsideHandler, true);
