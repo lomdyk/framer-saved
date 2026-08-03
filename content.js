@@ -507,10 +507,14 @@
   function createFolder(name) {
     const trimmed = (name || '').trim();
     if (!trimmed) return null;
-    const id = slugify(trimmed);
-    if (!id) return null;
+    let id = slugify(trimmed);
+    if (!id || id.length === 0) {
+      id = 'f-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
+    }
 
-    const existing = savedFolders.find(function (f) { return f.id === id; });
+    const existing = savedFolders.find(function (f) {
+      return f.id === id || (f.name && f.name.toLowerCase() === trimmed.toLowerCase());
+    });
     if (existing) return existing;
 
     const newFolder = { id: id, name: trimmed };
@@ -807,9 +811,23 @@
         }
       }
 
+      if (addInput) {
+        addInput.addEventListener('keydown', function (e) {
+          e.stopPropagation();
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            handleAddFolder();
+          }
+        });
+        addInput.addEventListener('click', function (e) {
+          e.stopPropagation();
+        });
+      }
+
       if (addBtn) {
         addBtn.addEventListener('click', function (e) {
           e.stopPropagation();
+          e.preventDefault();
           handleAddFolder();
         });
       }

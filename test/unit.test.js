@@ -98,6 +98,10 @@ const createdFolder = api.createFolder('Test Folder Unit');
 eq(createdFolder.id, 'test-folder-unit', 'creates normalized folder id');
 eq(createdFolder.name, 'Test Folder Unit', 'preserves display name');
 
+const cyrillicFolder = api.createFolder('Интерфейсы');
+eq(cyrillicFolder !== null, true, 'creates non-ASCII Cyrillic folder successfully');
+eq(cyrillicFolder.name, 'Интерфейсы', 'preserves Cyrillic display name');
+
 const testItemUrl = 'https://www.framer.com/community/marketplace/components/unit-test-item/';
 api.toggleSaveItem({
   id: api.normalizeId(testItemUrl),
