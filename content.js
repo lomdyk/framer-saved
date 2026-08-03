@@ -275,6 +275,11 @@
     return new RegExp('^' + MARKETPLACE_MOUNT).test(win.location.pathname);
   }
 
+  function isCommunityPage() {
+    if (!win.location) return false;
+    return /^\/community\//.test(win.location.pathname);
+  }
+
   function isDetailPage() {
     if (!win.location) return false;
     const re = new RegExp(
@@ -1398,7 +1403,7 @@
   }
 
   function injectCardBookmarkButtons() {
-    if (!isMarketplacePage() || isDetailPage()) return;
+    if ((!isMarketplacePage() && !isCommunityPage()) || isDetailPage()) return;
     if (!doc.querySelectorAll) return;
 
     const links = doc.querySelectorAll('a[href*="/marketplace/"]');
