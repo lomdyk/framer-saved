@@ -2245,89 +2245,6 @@
   }
 
   // ------------------------------------------------------------
-  // Guaranteed card navigation fallback
-  // ------------------------------------------------------------
-  // Framer's grid cards sometimes render decorative layers (interactive
-  // thumbnails, stretched overlay wrappers) above the card link. When such a
-  // layer swallows a click, the browser never sees an interactive target and
-  // nothing navigates. This capture-phase watcher notices a "dead" click
-  // inside a card tile, gives the site's own handlers a beat (SPA routers act
-  // synchronously), and then replays the click on the card's real link —
-  // falling back to a hard navigation if the replay was swallowed as well.
-  function attachCardNavFallback() {
-    if (!doc.addEventListener) return;
-
-    doc.addEventListener('click', function (e) {
-      // Only plain primary-button clicks without modifiers
-      if (!e || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-      if (!isMarketplacePage() || isDetailPage()) return;
-      const t = e.target;
-      if (!t || t.nodeType !== 1 || !t.closest) return;
-
-      // Never hijack clicks meant for our own UI
-      if (t.closest(
-        '#' + OVERLAY_ID + ', #' + POPOVER_ID + ', .framer-saved-popover, .framer-saved-toast, ' +
-        '.framer-saved-settings-panel, .framer-saved-nav-item, .framer-saved-card-inline-btn, ' +
-        '.framer-saved-card-export-btn, .framer-saved-detail-btn, .framer-saved-export-detail-btn, ' +
-        '.framer-saved-export-progress'
-      )) return;
-
-      // A native interactive element already handles this click
-      if (t.closest('a[href], button, [role="button"], input, textarea, select, option, label, summary')) return;
-
-      // Find a plausible card tile around the click target
-      let node = t;
-      let tileEl = null;
-      for (let i = 0; i < 10 && node && node !== doc.body && node !== doc.documentElement; i++) {
-        const cls = classNameOf(node);
-        if (/card|tile|post|item|product|showcase/i.test(cls) || node.tagName === 'ARTICLE' || node.tagName === 'LI') {
-          tileEl = node;
-        }
-        node = node.parentElement;
-      }
-      if (!tileEl) return;
-
-      // Pick the card's detail link whose box actually contains the click point
-      const links = tileEl.querySelectorAll('a[href*="/marketplace/"]');
-      let best = null;
-      for (let i = 0; i < links.length; i++) {
-        const lk = links[i];
-        if (!isCardDetailHref(lk.getAttribute('href') || '')) continue;
-        let r = null;
-        try { r = lk.getBoundingClientRect(); } catch (err) { /* ignore */ }
-        if (!r || r.width < 12 || r.height < 12) continue;
-        if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
-          const area = r.width * r.height;
-          if (!best || area > best.area) best = { link: lk, href: lk.href, area: area };
-        }
-      }
-      if (!best) return;
-
-      const beforeKey = currentUrlKey();
-      setTimeout(function () {
-        if (e.defaultPrevented) return;               // the site claimed the click
-        if (currentUrlKey() !== beforeKey) return;    // SPA navigation happened on its own
-        if (doc.hidden) return;
-        // Don't yank the user away while they're selecting text on the card
-        try {
-          const sel = typeof win.getSelection === 'function' ? win.getSelection() : null;
-          if (sel && !sel.isCollapsed) return;
-        } catch (err) { /* ignore */ }
-        try {
-          const ev = new win.MouseEvent('click', { bubbles: true, cancelable: true, view: win, button: 0 });
-          best.link.dispatchEvent(ev);
-        } catch (err) { /* ignore */ }
-        setTimeout(function () {
-          if (currentUrlKey() !== beforeKey) return;
-          if (doc.hidden) return;
-          // Even the replayed click was swallowed — navigate directly.
-          try { win.location.assign(best.href); } catch (err) { /* ignore */ }
-        }, 180);
-      }, 90);
-    }, true);
-  }
-
-  // ------------------------------------------------------------
   // Injection pipeline
   // ------------------------------------------------------------
   function injectAll() {
@@ -2351,7 +2268,6 @@
 
   function initApp() {
     patchHistoryAPI();
-    attachCardNavFallback();
 
     if (doc.addEventListener) {
       const pressFlag = function (v) { return function () { pressInProgress = v; }; };
@@ -2369,7 +2285,6 @@
       observer.observe(doc.body, { childList: true, subtree: true });
     }
 
-    // Periodic check every 1.5s (slower than 500ms to reduce overhead)
     setInterval(function () {
       if (!doc.hidden) {
         if (urlChanged()) injectAll();
