@@ -135,7 +135,8 @@ function makeWindow(html, url, seededStore) {
   };
   window.__store = store;
 
-  window.MutationObserver = class { constructor(cb) {} observe() {} disconnect() {} };
+  // NOTE: keep jsdom's native MutationObserver — storage storms and re-render
+  // debounce tests rely on it actually firing.
   window.Blob = class {};
   if (window.URL && window.URL.createObjectURL === undefined) {
     window.URL.createObjectURL = () => 'blob:mock';
@@ -369,6 +370,149 @@ async function testListingAndMount() {
   winBare.close();
 }
 
+
+// ---------------------------------------------------------------------------
+// Test 7: anti-jitter — self-heal pass must NOT churn the button DOM
+// ---------------------------------------------------------------------------
+async function testNoJitter() {
+  console.log('\n--- T7: no DOM churn / no animation restart on steady state ---');
+  const window = makeWindow(
+    DETAIL_HTML,
+    'https://www.framer.com/community/marketplace/components/origin-button/',
+    { framer_saved_items_v1: [ORIGIN_ITEM] }
+  );
+  await boot(window);
+  const doc = window.document;
+  const btn = doc.querySelector('.framer-saved-detail-btn');
+  ok(btn !== null && btn.classList.contains('is-saved'), 'button is saved on boot');
+
+  const iconSpan = btn.querySelector('.framer-saved-detail-btn-icon');
+  const htmlBefore = btn.innerHTML;
+  await sleep(1900); // several interval-driven self-heal passes
+  const btnAfter = doc.querySelector('.framer-saved-detail-btn');
+  ok(btnAfter === btn, 'same button node (not replaced)');
+  ok(btnAfter.innerHTML === htmlBefore, 'innerHTML untouched while state unchanged (no animation restart)');
+  ok(btnAfter.querySelector('.framer-saved-detail-btn-icon') === iconSpan, 'icon node identity preserved');
+  ok(btnAfter.classList.contains('is-saved'), 'still saved (no flicker)');
+  window.close();
+}
+
+// ---------------------------------------------------------------------------
+// Test 8: storage write storms collapse into a single debounced re-render
+// ---------------------------------------------------------------------------
+async function testRenderStormDebounce() {
+  console.log('\n--- T8: render storm debounce ---');
+  const window = makeWindow(gridHtml(), 'https://www.framer.com/community/marketplace/components/', {
+    framer_saved_items_v1: [ORIGIN_ITEM]
+  });
+  await boot(window);
+  const doc = window.document;
+  doc.querySelector('.framer-saved-nav-item').click();
+  await sleep(250);
+  ok(doc.getElementById('framer-saved-overlay') !== null, 'overlay open');
+
+  const grid = doc.getElementById('framer-saved-grid');
+  let renders = 0;
+  const mo = new window.MutationObserver(() => { renders++; });
+  mo.observe(grid, { childList: true });
+
+  // Fire a storage write storm (5 rapid writes like metadata fetches would)
+  for (let i = 0; i < 5; i++) {
+    const items = window.__store.framer_saved_items_v1.slice();
+    items[0] = Object.assign({}, items[0], { fetchedMeta: true, tick: i });
+    window.chrome.storage.local.set({ framer_saved_items_v1: items });
+  }
+  await sleep(700);
+  console.log('    (info) grid childList mutations after storm: ' + renders);
+  ok(renders <= 2, 'render storm collapsed (renders=' + renders + ', expected <=2)');
+  window.close();
+}
+
+// ---------------------------------------------------------------------------
+// Test 9: re-render never happens under an active mouse press
+// ---------------------------------------------------------------------------
+async function testPressGuard() {
+  console.log('\n--- T9: no re-render under active press ---');
+  const window = makeWindow(gridHtml(), 'https://www.framer.com/community/marketplace/components/', {
+    framer_saved_items_v1: [ORIGIN_ITEM]
+  });
+  await boot(window);
+  const doc = window.document;
+  doc.querySelector('.framer-saved-nav-item').click();
+  await sleep(250);
+
+  const grid = doc.getElementById('framer-saved-grid');
+  // Dispatch pointerdown (capture listener flips the guard on)
+  grid.dispatchEvent(new window.Event('pointerdown', { bubbles: true }));
+
+  const items = window.__store.framer_saved_items_v1.slice();
+  items[0] = Object.assign({}, items[0], { fetchedMeta: true, storm: true });
+  window.chrome.storage.local.set({ framer_saved_items_v1: items });
+  await sleep(350);
+
+  let rendersDuringPress = 0;
+  const mo = new window.MutationObserver(() => { rendersDuringPress++; });
+  mo.observe(grid, { childList: true });
+  await sleep(300);
+  ok(rendersDuringPress === 0, 'no re-render while mouse is pressed (got ' + rendersDuringPress + ')');
+
+  grid.dispatchEvent(new window.Event('pointerup', { bubbles: true }));
+  await sleep(500);
+  ok(rendersDuringPress >= 1, 'pending render lands after press released (got ' + rendersDuringPress + ')');
+  window.close();
+}
+
+// ---------------------------------------------------------------------------
+// Test 10: realistic Chrome timing — save→remove→re-sync under async latency
+// ---------------------------------------------------------------------------
+async function testRealisticTiming() {
+  console.log('\n--- T10: full flow under realistic storage latency ---');
+  const window = makeWindow(DETAIL_HTML, 'https://www.framer.com/community/marketplace/components/origin-button/');
+  // Rebuild storage with slow async semantics
+  const store = { framer_saved_items_v1: [], framer_saved_folders_v1: [] };
+  const listeners = [];
+  window.chrome = {
+    storage: {
+      local: {
+        get: (keys, cb) => setTimeout(() => {
+          const res = {};
+          (Array.isArray(keys) ? keys : [keys]).forEach((k) => { res[k] = store[k]; });
+          cb(res);
+        }, 20),
+        set: (obj, cb) => setTimeout(() => {
+          Object.keys(obj).forEach((k) => { store[k] = JSON.parse(JSON.stringify(obj[k])); });
+          const changes = {};
+          Object.keys(obj).forEach((k) => { changes[k] = { newValue: obj[k] }; });
+          setTimeout(() => listeners.forEach((l) => l(changes, 'local')), 15);
+          cb && cb();
+        }, 20)
+      },
+      onChanged: { addListener: (l) => listeners.push(l) }
+    },
+    runtime: { onMessage: { addListener: () => {} }, sendMessage: (_m, cb) => cb && cb({ ok: true }) }
+  };
+  window.__store = store;
+
+  window.eval(fs.readFileSync(path.join(__dirname, '..', 'content.js'), 'utf8'));
+  await sleep(900);
+
+  const doc = window.document;
+  const btn = doc.querySelector('.framer-saved-detail-btn');
+  btn.click();
+  await sleep(200);
+  ok(btn.classList.contains('is-saved'), 'saved under latency');
+
+  const popover = doc.getElementById('framer-saved-folder-popover');
+  popover.querySelector('.framer-saved-popover-remove-btn').click();
+  await sleep(300);
+  ok(!btn.classList.contains('is-saved'), 'neutral after remove under latency');
+  ok((store.framer_saved_items_v1 || []).length === 0, 'storage empty after remove');
+  await sleep(1900); // let interval passes run with onChanged latency
+  ok(!doc.querySelector('.framer-saved-detail-btn').classList.contains('is-saved'), 'stays neutral after background passes');
+  ok((window.__store.framer_saved_items_v1 || []).length === 0, 'item NOT resurrected by async onChanged replay');
+  window.close();
+}
+
 (async () => {
   console.log('Running bugfix regression tests (JSDOM)...');
   await testDetailSaveRemove(false);
@@ -378,6 +522,10 @@ async function testListingAndMount() {
   await testNavFallback();
   await testOverlayRemoval();
   await testListingAndMount();
+  await testNoJitter();
+  await testRenderStormDebounce();
+  await testPressGuard();
+  await testRealisticTiming();
 
   console.log('');
   if (failures === 0) {

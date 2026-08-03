@@ -51,6 +51,9 @@
   let currentSearchQuery = '';
   let toastTimer = null;
   let injectQueued = false;
+  let overlayRenderTimer = null;
+  let pressInProgress = false;
+  let popoverOutsideHandler = null;
   let lastUrl = win.location ? (win.location.pathname + win.location.search + win.location.hash) : '';
   const pendingFetches = new Set();
 
@@ -224,9 +227,14 @@
   }
 
   function findIndexById(idOrUrl) {
-    const needle = normalizeId(idOrUrl);
+    const raw = String(idOrUrl == null ? '' : idOrUrl);
+    const needle = normalizeId(raw);
     for (let i = 0; i < savedItems.length; i++) {
-      if (savedItems[i].id === needle || savedItems[i].url === idOrUrl || normalizeId(savedItems[i].url) === needle) return i;
+      const it = savedItems[i];
+      // Exact match against the stored id first (also covers legacy data)
+      if (it.id === raw || it.url === raw) return i;
+      if (it.id === needle) return i;
+      if (normalizeId(it.url) === needle || normalizeId(it.id) === needle) return i;
     }
     return -1;
   }
@@ -356,8 +364,7 @@
 
         if (modified) {
           saveItemsToStorage();
-          const overlay = doc.getElementById(OVERLAY_ID);
-          if (overlay) renderSavedGrid();
+          scheduleOverlayRender();
         }
       })
       .catch(function () {
@@ -379,33 +386,52 @@
   // ------------------------------------------------------------
   function loadSavedItems(callback) {
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.get([STORAGE_KEY, FOLDERS_KEY], function (res) {
-        savedItems = normalizeStoredItems(res[STORAGE_KEY]);
-        savedFolders = normalizeStoredFolders(res[FOLDERS_KEY]);
-        fetchMissingMetadataForCollection();
-        callback && callback();
-      });
-    } else {
       try {
-        const data = localStorage && localStorage.getItem(STORAGE_KEY);
-        const fold = localStorage && localStorage.getItem(FOLDERS_KEY);
-        savedItems = normalizeStoredItems(data ? JSON.parse(data) : []);
-        savedFolders = normalizeStoredFolders(fold ? JSON.parse(fold) : DEFAULT_FOLDERS);
+        chrome.storage.local.get([STORAGE_KEY, FOLDERS_KEY], function (res) {
+          res = res || {};
+          savedItems = normalizeStoredItems(res[STORAGE_KEY]);
+          savedFolders = normalizeStoredFolders(res[FOLDERS_KEY]);
+          fetchMissingMetadataForCollection();
+          callback && callback();
+        });
+        return;
       } catch (e) {
-        savedItems = [];
-        savedFolders = DEFAULT_FOLDERS.slice();
+        warn(e);
+        // fall through to localStorage bootstrap below
       }
-      fetchMissingMetadataForCollection();
-      callback && callback();
     }
+    try {
+      const data = localStorage && localStorage.getItem(STORAGE_KEY);
+      const fold = localStorage && localStorage.getItem(FOLDERS_KEY);
+      savedItems = normalizeStoredItems(data ? JSON.parse(data) : []);
+      savedFolders = normalizeStoredFolders(fold ? JSON.parse(fold) : DEFAULT_FOLDERS);
+    } catch (e) {
+      savedItems = [];
+      savedFolders = DEFAULT_FOLDERS.slice();
+    }
+    fetchMissingMetadataForCollection();
+    callback && callback();
   }
 
   function saveItemsToStorage() {
+    let persisted = false;
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.set({ [STORAGE_KEY]: savedItems, [FOLDERS_KEY]: savedFolders }, function () {
-        updateBadgeCount();
-      });
-    } else {
+      try {
+        chrome.storage.local.set({ [STORAGE_KEY]: savedItems, [FOLDERS_KEY]: savedFolders }, function () {
+          if (chrome.runtime && chrome.runtime.lastError) {
+            warn(chrome.runtime.lastError.message);
+          }
+          updateBadgeCount();
+        });
+        persisted = true;
+      } catch (e) {
+        // Extension context can die after an extension reload while the tab
+        // stays open. Don't let that kill the whole interaction — fall back
+        // to in-memory/localStorage persistence so the UI keeps working.
+        warn(e);
+      }
+    }
+    if (!persisted) {
       try {
         if (typeof localStorage !== 'undefined') {
           localStorage.setItem(STORAGE_KEY, JSON.stringify(savedItems));
@@ -414,6 +440,37 @@
       } catch (e) { /* ignore */ }
       updateBadgeCount();
     }
+  }
+
+  // Debounced overlay re-render. Storage churn (metadata fetches, badge updates
+  // from other tabs) used to trigger a full grid re-render on every write —
+  // a click landing between mousedown and mouseup died on detached nodes,
+  // which made the trash/remove buttons appear dead on real pages.
+  function scheduleOverlayRender() {
+    if (!doc.getElementById || !doc.getElementById(OVERLAY_ID)) return;
+    if (overlayRenderTimer) return;
+    overlayRenderTimer = setTimeout(function () {
+      overlayRenderTimer = null;
+      const overlay = doc.getElementById(OVERLAY_ID);
+      if (!overlay) return;
+      // Don't rip nodes out from under an active mouse press
+      if (pressInProgress) {
+        scheduleOverlayRender();
+        return;
+      }
+      renderFolderPills();
+      renderSavedGrid();
+    }, 200);
+  }
+
+  // Removes a saved item by id/url (tolerant to legacy/odd ids). Returns the
+  // removed item or null when nothing matched.
+  function removeSavedItem(idOrUrl) {
+    const idx = findIndexById(idOrUrl);
+    if (idx === -1) return null;
+    const removed = savedItems.splice(idx, 1)[0];
+    saveItemsToStorage();
+    return removed;
   }
 
   if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
@@ -425,11 +482,7 @@
       updateBadgeCount();
       applySettingsToDom();
       fetchMissingMetadataForCollection();
-      const overlay = doc.getElementById(OVERLAY_ID);
-      if (overlay) {
-        renderFolderPills();
-        renderSavedGrid();
-      }
+      scheduleOverlayRender();
     });
   }
 
@@ -443,8 +496,7 @@
       if (msg.type === 'settings-updated') {
         settings = mergeSettings(msg.settings);
         applySettingsToDom();
-        renderFolderPills();
-        renderSavedGrid();
+        scheduleOverlayRender();
       }
     });
   }
@@ -606,6 +658,11 @@
   function closeSavePopover() {
     const existing = doc.getElementById ? doc.getElementById(POPOVER_ID) : null;
     if (existing && existing.remove) existing.remove();
+    // Also detach the outside-click listener so it doesn't leak between opens
+    if (popoverOutsideHandler && doc.removeEventListener) {
+      doc.removeEventListener('click', popoverOutsideHandler, true);
+      popoverOutsideHandler = null;
+    }
   }
 
   function openSavePopover(meta, triggerBtn) {
@@ -770,16 +827,28 @@
       const removeBtn = popover.querySelector('.framer-saved-popover-remove-btn');
       if (removeBtn) {
         removeBtn.addEventListener('click', function (e) {
+          e.preventDefault();
           e.stopPropagation();
-          const idx = findIndexById(itemNormId);
-          if (idx > -1) {
-            savedItems.splice(idx, 1);
-            saveItemsToStorage();
+          // Try every id form we know about — stored ids from older versions
+          // or imported links may not match the current page id 1:1.
+          const candidates = [itemNormId, canonicalKey];
+          if (meta) {
+            if (meta.id) candidates.push(meta.id);
+            if (meta.url) candidates.push(meta.url);
+          }
+          let removed = null;
+          for (let i = 0; i < candidates.length && !removed; i++) {
+            removed = removeSavedItem(candidates[i]);
+          }
+          if (removed) {
             showToast('Removed from Saved');
             updateAllBtnStates(itemNormId);
             renderFolderPills();
             const overlay = doc.getElementById(OVERLAY_ID);
             if (overlay) renderSavedGrid();
+          } else {
+            warn('remove failed — item not found for ids: ' + candidates.join(' | '));
+            showToast('Item not found in Saved', 'error');
           }
           closeSavePopover();
         });
@@ -791,13 +860,13 @@
     updateAllBtnStates(itemNormId);
 
     setTimeout(function () {
-      function onOutsideClick(e) {
+      if (!doc.getElementById || doc.getElementById(POPOVER_ID) !== popover) return; // already closed
+      popoverOutsideHandler = function (e) {
         if (!popover.contains(e.target) && e.target !== triggerBtn && !triggerBtn.contains(e.target)) {
           closeSavePopover();
-          doc.removeEventListener('click', onOutsideClick, true);
         }
-      }
-      if (doc.addEventListener) doc.addEventListener('click', onOutsideClick, true);
+      };
+      if (doc.addEventListener) doc.addEventListener('click', popoverOutsideHandler, true);
     }, 50);
   }
 
@@ -1191,7 +1260,12 @@
   }
 
   function updateDetailBtnContent(btn, saved) {
-    btn.className = 'framer-saved-detail-btn' + (saved ? ' is-saved' : '');
+    const wantClass = 'framer-saved-detail-btn' + (saved ? ' is-saved' : '');
+    // No-op guard: only touch the DOM when the state actually changes.
+    // Rewriting innerHTML recreated the icon node on every background pass
+    // and kept restarting the pop/wiggle animations (visibly "jittering").
+    if (btn.className === wantClass) return;
+    btn.className = wantClass;
     btn.setAttribute('aria-label', saved ? 'Remove from Saved' : 'Save component');
     btn.setAttribute('aria-pressed', saved ? 'true' : 'false');
     btn.title = saved ? 'Manage folders or remove' : 'Save component';
@@ -1274,7 +1348,11 @@
   }
 
   function setCardBtnState(btn, saved) {
-    btn.className = 'framer-saved-card-inline-btn' + (saved ? ' is-saved' : '');
+    const wantClass = 'framer-saved-card-inline-btn' + (saved ? ' is-saved' : '');
+    // No-op guard (see updateDetailBtnContent): prevents needless DOM churn
+    // and restarts of the pop/wiggle animations on every state sync.
+    if (btn.className === wantClass) return;
+    btn.className = wantClass;
     btn.setAttribute('aria-label', saved ? 'Manage saved component' : 'Save component');
     btn.title = saved ? 'Manage folders or remove' : 'Save component';
     btn.innerHTML = saved ? ICON_BOOKMARK_FILLED : ICON_BOOKMARK;
@@ -1975,13 +2053,15 @@
       btn.addEventListener('click', function (e) {
         e.preventDefault();
         e.stopPropagation();
-        const idx = findIndexById(btn.getAttribute('data-id'));
-        if (idx > -1) {
-          savedItems.splice(idx, 1);
-          saveItemsToStorage();
+        const removed = removeSavedItem(btn.getAttribute('data-id'));
+        if (removed) {
           renderFolderPills();
           renderSavedGrid();
+          updateAllBtnStates(removed.id);
           showToast('Removed from Saved');
+        } else {
+          warn('trash remove failed — id not found: ' + btn.getAttribute('data-id'));
+          showToast('Item not found in Saved', 'error');
         }
       });
     });
@@ -2272,6 +2352,13 @@
   function initApp() {
     patchHistoryAPI();
     attachCardNavFallback();
+
+    if (doc.addEventListener) {
+      const pressFlag = function (v) { return function () { pressInProgress = v; }; };
+      doc.addEventListener('pointerdown', pressFlag(true), true);
+      doc.addEventListener('pointerup', pressFlag(false), true);
+      doc.addEventListener('pointercancel', pressFlag(false), true);
+    }
 
     if (typeof MutationObserver !== 'undefined' && doc.body) {
       const observer = new MutationObserver(function () {

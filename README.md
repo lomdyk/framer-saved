@@ -7,7 +7,7 @@
 ### *Native Bookmarking, User Collections & Live Preview ZIP Exporter for Framer Marketplace*
 
 [![Chrome Extension](https://img.shields.io/badge/Manifest-MV3-0099FF?style=for-the-badge&logo=googlechrome&logoColor=white)](https://chrome.google.com/webstore)
-[![Tests Passing](https://img.shields.io/badge/Tests-73%2F73%20Passing-30D158?style=for-the-badge&logo=github-actions&logoColor=white)](./test)
+[![Tests Passing](https://img.shields.io/badge/Tests-87%2F87%20Passing-30D158?style=for-the-badge&logo=github-actions&logoColor=white)](./test)
 [![License](https://img.shields.io/badge/License-MIT-FF2D55?style=for-the-badge)](./LICENSE)
 [![Zero Backend](https://img.shields.io/badge/Privacy-100%25%20Local%20Storage-8A8F98?style=for-the-badge)](#privacy--architecture)
 
